@@ -7,15 +7,17 @@ import { Header } from './components/Header';
 import { RuleBook } from './components/RuleBook';
 import { MainDisplay } from './components/MainDisplay';
 import { CRTLayer } from './components/CRTLayer';
+import { EvidenceBoard } from './components/EvidenceBoard';
 
 const App: React.FC = () => {
   const [gameState, setGameState] = useState<GameState>(INITIAL_STATE);
   const [history, setHistory] = useState<string[]>([]);
+  const [showEvidence, setShowEvidence] = useState(false);
+  const [hasNewEvidence, setHasNewEvidence] = useState(false);
+
   // To avoid duplicate API calls in Strict Mode
   const initializingRef = useRef(false);
 
-  // Initial sound effect or ambiance could go here
-  
   const handleChoice = async (choice: Choice) => {
     if (gameState.isLoading || gameState.isGameOver) return;
 
@@ -36,6 +38,15 @@ const App: React.FC = () => {
         const incomingRules = response.new_rules || [];
         const uniqueIncomingRules = incomingRules.filter(r => !prev.rules.includes(r));
         const newRules = [...prev.rules, ...uniqueIncomingRules];
+
+        // Handle new evidence
+        const incomingEvidence = response.new_evidence || [];
+        const newInventory = [...prev.inventory, ...incomingEvidence];
+        
+        // Trigger notification if there is new evidence
+        if (incomingEvidence.length > 0) {
+          setHasNewEvidence(true);
+        }
         
         const isGameOver = newSanity <= 0 || response.is_game_over;
         const isVictory = !!response.is_victory;
@@ -47,6 +58,7 @@ const App: React.FC = () => {
           imagePrompt: response.image_prompt_english,
           choices: response.choices,
           rules: newRules,
+          inventory: newInventory,
           turnCount: prev.turnCount + 1,
           isGameOver: isGameOver,
           isVictory: isVictory,
@@ -60,11 +72,21 @@ const App: React.FC = () => {
     }
   };
 
+  const handleOpenEvidence = () => {
+    setShowEvidence(true);
+    setHasNewEvidence(false); // Clear notification on open
+  };
+
   return (
     <div className="h-screen w-screen overflow-hidden flex flex-col font-body bg-black text-gray-200">
       <CRTLayer />
       
-      <Header sanity={gameState.sanity} location={gameState.location} />
+      <Header 
+        sanity={gameState.sanity} 
+        location={gameState.location} 
+        onOpenEvidence={handleOpenEvidence}
+        hasNewEvidence={hasNewEvidence}
+      />
       
       <main className="flex-1 flex overflow-hidden z-20 relative">
         <RuleBook rules={gameState.rules} />
@@ -78,12 +100,18 @@ const App: React.FC = () => {
           isVictory={gameState.isVictory}
         />
       </main>
+
+      <EvidenceBoard 
+        isOpen={showEvidence} 
+        onClose={() => setShowEvidence(false)} 
+        inventory={gameState.inventory} 
+      />
       
       {/* Mobile Rule Button (Optional, simple overlay implementation for mobile) */}
       <div className="lg:hidden fixed top-20 right-4 z-40">
         <details className="relative">
           <summary className="list-none bg-yellow-600 text-black px-3 py-1 rounded font-header text-sm cursor-pointer border border-yellow-800 shadow-lg">
-            查看守则
+            守则
           </summary>
           <div className="absolute right-0 mt-2 w-64 bg-[#dcdcdc] p-4 text-black rounded shadow-xl border-4 border-metal-dark max-h-96 overflow-y-auto">
              <h3 className="font-header font-bold text-center mb-2 text-red-800 underline">患者守则</h3>

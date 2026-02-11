@@ -1,4 +1,11 @@
 
+export interface Evidence {
+  id: string;
+  name: string;
+  description: string;
+  type: 'document' | 'photo' | 'item' | 'key';
+}
+
 export interface GameState {
   sanity: number;
   location: string;
@@ -6,9 +13,10 @@ export interface GameState {
   imagePrompt: string;
   choices: Choice[];
   rules: string[];
+  inventory: Evidence[]; // New: List of collected evidence
   turnCount: number;
   isGameOver: boolean;
-  isVictory: boolean; // New field for winning state
+  isVictory: boolean;
   isLoading: boolean;
 }
 
@@ -21,12 +29,13 @@ export interface Choice {
 export interface GeminiResponse {
   narrative: string;
   choices: Choice[];
-  image_prompt_english: string; // Used for image generation
+  image_prompt_english: string;
   sanity_change: number;
-  new_rules?: string[]; // If the player discovers a new rule note
+  new_rules?: string[];
+  new_evidence?: Evidence[]; // New: AI can return found items
   location_name: string;
   is_game_over: boolean;
-  is_victory?: boolean; // Optional field from AI
+  is_victory?: boolean;
 }
 
 export enum GameStatus {

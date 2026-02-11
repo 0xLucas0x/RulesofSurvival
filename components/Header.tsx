@@ -3,9 +3,11 @@ import React from 'react';
 interface HeaderProps {
   sanity: number;
   location: string;
+  onOpenEvidence: () => void;
+  hasNewEvidence?: boolean;
 }
 
-export const Header: React.FC<HeaderProps> = ({ sanity, location }) => {
+export const Header: React.FC<HeaderProps> = ({ sanity, location, onOpenEvidence, hasNewEvidence }) => {
   let sanityColor = "bg-green-500";
   let sanityText = "稳定";
   
@@ -24,17 +26,41 @@ export const Header: React.FC<HeaderProps> = ({ sanity, location }) => {
         <div className="w-8 h-8 bg-hospital-white rounded-full flex items-center justify-center border-2 border-rust text-blood-fresh">
           <span className="material-symbols-outlined text-xl font-bold">local_hospital</span>
         </div>
-        <span className="font-header text-hospital-white tracking-widest text-lg md:text-xl shadow-black drop-shadow-md truncate">
-          崇山医院_系统.v0.9
+        <span className="hidden md:inline font-header text-hospital-white tracking-widest text-lg md:text-xl shadow-black drop-shadow-md truncate">
+          崇山诊疗录 | SYS.v0.9
+        </span>
+        <span className="md:hidden font-header text-hospital-white tracking-widest text-lg">
+          崇山诊疗录
         </span>
       </div>
       
-      <div className="flex items-center space-x-4 md:space-x-6 text-hospital-white/70 font-header text-xs tracking-widest">
-        <span className="hidden md:flex items-center gap-2 px-3 py-1 bg-black/30 border border-white/10 rounded">
-          <span className={`w-2 h-2 rounded-full ${sanityColor} animate-pulse shadow-[0_0_8px_currentColor]`}></span> 
-          理智值: {sanity}% [{sanityText}]
-        </span>
-        <span className="uppercase text-rust-light font-bold truncate max-w-[150px]">{location}</span>
+      <div className="flex items-center gap-4 md:gap-6">
+        {/* Evidence Button */}
+        <button 
+          onClick={onOpenEvidence}
+          className="flex items-center gap-2 px-3 py-1 bg-black/40 hover:bg-black/60 border border-rust/50 hover:border-rust rounded transition-all group relative"
+        >
+          <span className="material-symbols-outlined text-rust-light group-hover:text-white transition-colors">folder_open</span>
+          <span className="hidden md:inline font-header text-rust-light group-hover:text-white text-sm tracking-widest">证据板</span>
+          
+          {hasNewEvidence && (
+            <span className="absolute -top-1 -right-1 flex h-3 w-3">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-3 w-3 bg-red-500"></span>
+            </span>
+          )}
+        </button>
+
+        {/* Status Indicators */}
+        <div className="flex flex-col md:flex-row items-end md:items-center md:gap-6 font-header text-xs tracking-widest text-hospital-white/70">
+           <span className="flex items-center gap-2">
+             <span className={`w-2 h-2 rounded-full ${sanityColor} animate-pulse shadow-[0_0_8px_currentColor]`}></span> 
+             <span className="hidden md:inline">理智值:</span> {sanity}%
+           </span>
+           <span className="uppercase text-rust-light font-bold truncate max-w-[100px] md:max-w-[150px] text-right">
+             {location}
+           </span>
+        </div>
       </div>
     </header>
   );

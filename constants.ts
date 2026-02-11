@@ -13,9 +13,12 @@ export const INITIAL_STATE: GameState = {
   choices: [
     { id: "1", text: "查看四周", actionType: "investigate" },
     { id: "2", text: "走向护士站", actionType: "move" },
-    { id: "3", text: "检查口袋", actionType: "item" }
+    { id: "3", text: "检查挂号单", actionType: "item" }
   ],
   rules: INITIAL_RULES,
+  inventory: [
+    { id: "init_1", name: "皱巴巴的挂号单", description: "上面印着今天的日期，背面写着潦草的字迹：'别相信穿红衣服的人'。", type: "document" }
+  ],
   turnCount: 0,
   isGameOver: false,
   isVictory: false,
@@ -39,27 +42,29 @@ Game Loop Rules:
 4. Update the player's Sanity based on the action (scary things reduce sanity). If Sanity <= 0, game over.
 5. Provide 3-4 distinct choices.
 6. Provide a short English prompt to generate an image of the current scene.
-7. **RULES MECHANIC (IMPORTANT):**
-   - **DO NOT** generate 'new_rules' in every turn. Only generate them if the player explicitly finds a note, reads a wall, or finds a diary in the narrative.
-   - **Most turns should have "new_rules": []**.
-   - **Check 'Current Known Rules':** Do NOT repeat a rule that is already known.
-   - **Contradictions:** You ARE ALLOWED to generate rules that contradict previous ones.
+7. **RULES MECHANIC:**
+   - Only generate 'new_rules' if the player explicitly finds a note/wall text.
+   - Do NOT repeat known rules.
+8. **EVIDENCE/ITEM MECHANIC (NEW):**
+   - If the player finds a key item, physical clue, key, or photo, return it in 'new_evidence'.
+   - Example: Found a "Rusty Key" or "Bloody ID Card".
+   - Do not spam items. Only significant plot items.
 
-**VICTORY & ENDING CONDITIONS (CRITICAL):**
-The game supports multiple endings. You decide when the story ends based on player actions.
-1. **BAD ENDING:** Sanity <= 0. Set 'is_game_over': true, 'is_victory': false. Narrative: Describe a horrific death or madness.
-2. **ESCAPE ENDING:** If the player successfully finds the Exit Key or breaches the Front Gate while following rules. Set 'is_game_over': true, 'is_victory': true. Narrative: They escape into the morning fog, alive but traumatized.
-3. **TRUE ENDING:** If the player uncovers the Hospital's core secret (e.g., in the Director's Office or Morgue) and performs a ritual/action to end the curse. Set 'is_game_over': true, 'is_victory': true.
+**VICTORY & ENDING CONDITIONS:**
+1. **BAD ENDING:** Sanity <= 0.
+2. **ESCAPE ENDING:** Successfully escape.
+3. **TRUE ENDING:** Uncover the core secret.
 
 Output JSON format ONLY:
 {
   "narrative": "String (with tags)",
   "choices": [{ "id": "1", "text": "String", "actionType": "move"|"investigate"|"item"|"risky" }],
-  "image_prompt_english": "String (visual description for image generator)",
-  "sanity_change": Number (negative for damage, positive for recovery),
-  "new_rules": ["String"] (Only if found new rules, otherwise empty array),
+  "image_prompt_english": "String",
+  "sanity_change": Number,
+  "new_rules": ["String"],
+  "new_evidence": [{ "id": "String", "name": "String", "description": "String", "type": "document"|"photo"|"item"|"key" }],
   "location_name": "String",
   "is_game_over": Boolean,
-  "is_victory": Boolean (True if player wins/escapes, False if player dies or game continues)
+  "is_victory": Boolean
 }
 `;

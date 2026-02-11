@@ -28,6 +28,20 @@ const responseSchema = {
       items: { type: Type.STRING }, 
       description: "Any new rules found on notes/walls. Keep empty if none found." 
     },
+    new_evidence: {
+      type: Type.ARRAY,
+      items: {
+        type: Type.OBJECT,
+        properties: {
+          id: { type: Type.STRING },
+          name: { type: Type.STRING },
+          description: { type: Type.STRING },
+          type: { type: Type.STRING, enum: ["document", "photo", "item", "key"] }
+        },
+        required: ["id", "name", "description", "type"]
+      },
+      description: "New items or clues added to inventory."
+    },
     location_name: { type: Type.STRING },
     is_game_over: { type: Type.BOOLEAN },
     is_victory: { type: Type.BOOLEAN, description: "Set to true ONLY if the player explicitly wins or escapes." }
