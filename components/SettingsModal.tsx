@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { testConnection } from '../services/geminiService';
+import { GameConfig, DEFAULT_GAME_CONFIG, DifficultyPreset, DIFFICULTY_PRESETS, DIFFICULTY_LABELS } from '../gameConfig';
 
 interface SettingsModalProps {
     isOpen: boolean;
@@ -17,7 +18,8 @@ interface SettingsModalProps {
         imageModel: string,
         imageBaseUrl: string,
         imageApiKey: string,
-        enableImageGen: boolean
+        enableImageGen: boolean,
+        gameConfig: GameConfig
     ) => void;
     provider: 'gemini' | 'openai';
     chatModel: string;
@@ -26,6 +28,7 @@ interface SettingsModalProps {
     imageBaseUrl?: string;
     imageApiKey?: string;
     enableImageGen?: boolean;
+    gameConfig?: GameConfig;
 }
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({
@@ -41,6 +44,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     imageBaseUrl: initialImgBase,
     imageApiKey: initialImgKey,
     enableImageGen: initialEnableImageGen,
+    gameConfig: initialGameConfig,
     onSave
 }) => {
     const [apiKey, setApiKey] = useState(initialApiKey);
@@ -54,6 +58,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     const [imageBaseUrl, setImageBaseUrl] = useState(initialImgBase || '');
     const [imageApiKey, setImageApiKey] = useState(initialImgKey || '');
     const [enableImageGen, setEnableImageGen] = useState(initialEnableImageGen !== false);
+    const [localGameConfig, setLocalGameConfig] = useState<GameConfig>(initialGameConfig || DEFAULT_GAME_CONFIG);
     const [availableImageModels, setAvailableImageModels] = useState<string[]>([]);
     const [isFetchingImageModels, setIsFetchingImageModels] = useState(false);
 
@@ -80,13 +85,14 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             setImageBaseUrl(initialImgBase || '');
             setImageApiKey(initialImgKey || '');
             setEnableImageGen(initialEnableImageGen !== false);
+            setLocalGameConfig(initialGameConfig || DEFAULT_GAME_CONFIG);
         }
     }, [isOpen, initialImgProvider, initialImgModel, initialImgBase, initialImgKey, initialEnableImageGen]);
 
     if (!isOpen) return null;
 
     const handleSave = () => {
-        onSave(apiKey, baseUrl, pollinationsApiKey, provider, chatModel, imageProvider, imageModel, imageBaseUrl, imageApiKey, enableImageGen);
+        onSave(apiKey, baseUrl, pollinationsApiKey, provider, chatModel, imageProvider, imageModel, imageBaseUrl, imageApiKey, enableImageGen, localGameConfig);
         onClose();
     };
 
@@ -164,7 +170,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                                     onClick={() => setProvider('gemini')}
                                     className={`flex-1 py-2 text-sm border ${provider === 'gemini' ? 'bg-sickly-green text-black border-sickly-green' : 'border-metal-grey text-metal-grey hover:border-white'} transition-colors uppercase tracking-wider`}
                                 >
-                                    Gemini 3 Pro
+                                    Gemini 3 Flash
                                 </button>
                                 <button
                                     onClick={() => setProvider('openai')}
@@ -394,6 +400,58 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                             {testStatus === 'error' && "CONNECTION FAILED"}
                         </div>
                     )}
+
+                    {/* Game Configuration Section */}
+                    <div className="border-t border-metal-grey pt-4 mt-4">
+                        <h3 className="text-hospital-white text-sm font-header uppercase tracking-wider mb-3">游戏参数</h3>
+
+                        {/* Difficulty Presets */}
+                        <label className="block text-hospital-white mb-2 text-xs">难度预设</label>
+                        <div className="flex space-x-2 mb-4">
+                            {(Object.keys(DIFFICULTY_PRESETS) as DifficultyPreset[]).map(preset => {
+                                const isActive = localGameConfig.maxTurns === DIFFICULTY_PRESETS[preset].maxTurns &&
+                                    localGameConfig.sanityPenaltyRule === DIFFICULTY_PRESETS[preset].sanityPenaltyRule;
+                                return (
+                                    <button
+                                        key={preset}
+                                        onClick={() => setLocalGameConfig({ ...DEFAULT_GAME_CONFIG, ...DIFFICULTY_PRESETS[preset] })}
+                                        className={`flex-1 py-1.5 text-xs border transition-colors uppercase tracking-wider ${isActive
+                                            ? 'bg-sickly-green text-black border-sickly-green'
+                                            : 'border-metal-grey text-metal-grey hover:border-white hover:text-white'
+                                            }`}
+                                    >
+                                        {DIFFICULTY_LABELS[preset]}
+                                    </button>
+                                );
+                            })}
+                        </div>
+
+                        {/* Max Turns Slider */}
+                        <div className="mb-3">
+                            <label className="block text-hospital-white mb-1 text-xs">目标结束回合: <span className="text-sickly-green">{localGameConfig.maxTurns}</span></label>
+                            <input
+                                type="range"
+                                min="10"
+                                max="30"
+                                value={localGameConfig.maxTurns}
+                                onChange={(e) => setLocalGameConfig(prev => ({ ...prev, maxTurns: parseInt(e.target.value) }))}
+                                className="w-full h-1 bg-metal-grey rounded-none appearance-none cursor-pointer accent-sickly-green"
+                            />
+                            <div className="flex justify-between text-[10px] text-metal-grey mt-0.5">
+                                <span>10</span>
+                                <span>20</span>
+                                <span>30</span>
+                            </div>
+                        </div>
+
+                        {/* Penalty Summary */}
+                        <div className="bg-black/50 border border-metal-grey p-2 text-[10px] text-metal-grey space-y-0.5">
+                            <div className="flex justify-between"><span>轻微冒险惩罚</span><span className="text-yellow-500">{localGameConfig.sanityPenaltyLight}</span></div>
+                            <div className="flex justify-between"><span>违反规则惩罚</span><span className="text-orange-500">{localGameConfig.sanityPenaltyRule}</span></div>
+                            <div className="flex justify-between"><span>严重违规惩罚</span><span className="text-red-500">{localGameConfig.sanityPenaltyFatal}</span></div>
+                            <div className="flex justify-between"><span>安全选项上限</span><span>{Math.floor(localGameConfig.safeChoiceMaxRatio * 100)}%</span></div>
+                        </div>
+                    </div>
                 </div>
 
                 <div className="mt-8 flex justify-between items-center relative z-20 font-header shrink-0">

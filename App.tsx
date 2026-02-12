@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { createRoot } from 'react-dom/client';
 import { GameState, Choice, GeminiResponse } from './types';
 import { INITIAL_STATE } from './constants';
+import { GameConfig, DEFAULT_GAME_CONFIG, DifficultyPreset } from './gameConfig';
 import { generateNextTurn } from './services/geminiService';
 import { Header } from './components/Header';
 import { RuleBook } from './components/RuleBook';
@@ -27,6 +28,7 @@ const App: React.FC = () => {
   const [imageBaseUrl, setImageBaseUrl] = useState("");
   const [imageApiKey, setImageApiKey] = useState("");
   const [enableImageGen, setEnableImageGen] = useState(true);
+  const [gameConfig, setGameConfig] = useState<GameConfig>(DEFAULT_GAME_CONFIG);
 
   useEffect(() => {
     const storedApiKey = localStorage.getItem("gemini_api_key");
@@ -53,6 +55,13 @@ const App: React.FC = () => {
 
     const storedEnableImageGen = localStorage.getItem("enable_image_gen");
     if (storedEnableImageGen !== null) setEnableImageGen(storedEnableImageGen === 'true');
+
+    const storedGameConfig = localStorage.getItem("game_config");
+    if (storedGameConfig) {
+      try {
+        setGameConfig({ ...DEFAULT_GAME_CONFIG, ...JSON.parse(storedGameConfig) });
+      } catch (e) { /* ignore parse errors */ }
+    }
   }, []);
 
   const handleSaveSettings = (
@@ -65,7 +74,8 @@ const App: React.FC = () => {
     newImgModel: string,
     newImgBase: string,
     newImgKey: string,
-    newEnableImageGen: boolean
+    newEnableImageGen: boolean,
+    newGameConfig: GameConfig
   ) => {
     setApiKey(key);
     setBaseUrl(url);
@@ -77,6 +87,7 @@ const App: React.FC = () => {
     setImageBaseUrl(newImgBase);
     setImageApiKey(newImgKey);
     setEnableImageGen(newEnableImageGen);
+    setGameConfig(newGameConfig);
 
     localStorage.setItem("gemini_api_key", key);
     localStorage.setItem("gemini_base_url", url);
@@ -89,6 +100,7 @@ const App: React.FC = () => {
     localStorage.setItem("image_base_url", newImgBase);
     localStorage.setItem("image_api_key", newImgKey);
     localStorage.setItem("enable_image_gen", String(newEnableImageGen));
+    localStorage.setItem("game_config", JSON.stringify(newGameConfig));
   };
 
   // To avoid duplicate API calls in Strict Mode
@@ -112,20 +124,42 @@ const App: React.FC = () => {
         apiKey,
         baseUrl,
         provider,
-        chatModel
+        chatModel,
+        gameState.sanity,
+        gameState.inventory,
+        gameConfig
       );
 
       setGameState(prev => {
         const newSanity = Math.max(0, Math.min(100, prev.sanity + response.sanity_change));
 
-        // Handle new rules: Check for existence to strictly prevent duplicates
+        // Handle new rules with MVP cap: normally max 1 per turn, allow up to 2 only in explicit bulk-discovery scenes
         const incomingRules = response.new_rules || [];
-        const uniqueIncomingRules = incomingRules.filter(r => !prev.rules.includes(r));
+        const specialRuleDropKeywords = [
+          '完整守则',
+          '整页守则',
+          '规则汇编',
+          '值班手册',
+          '患者守则原件',
+          '公告栏整版'
+        ];
+        const isSpecialRuleDrop =
+          (choice.actionType === 'investigate' || choice.actionType === 'item') &&
+          specialRuleDropKeywords.some(keyword => response.narrative.includes(keyword));
+        const cappedIncomingRules = isSpecialRuleDrop
+          ? incomingRules.slice(0, 2)
+          : incomingRules.slice(0, 1);
+        const uniqueIncomingRules = cappedIncomingRules.filter(r => !prev.rules.includes(r));
         const newRules = [...prev.rules, ...uniqueIncomingRules];
 
         // Handle new evidence
         const incomingEvidence = response.new_evidence || [];
-        const newInventory = [...prev.inventory, ...incomingEvidence];
+        let newInventory = [...prev.inventory, ...incomingEvidence];
+
+        // Handle consumed item (protective item used)
+        if (response.consumed_item_id) {
+          newInventory = newInventory.filter(item => item.id !== response.consumed_item_id);
+        }
 
         // Trigger notification if there is new evidence
         if (incomingEvidence.length > 0) {
@@ -214,6 +248,7 @@ const App: React.FC = () => {
         imageBaseUrl={imageBaseUrl}
         imageApiKey={imageApiKey}
         enableImageGen={enableImageGen}
+        gameConfig={gameConfig}
         onSave={handleSaveSettings}
       />
 

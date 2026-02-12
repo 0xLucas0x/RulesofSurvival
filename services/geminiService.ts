@@ -1,6 +1,7 @@
 import { GoogleGenAI, Type } from "@google/genai";
-import { SYSTEM_INSTRUCTION } from "../constants";
-import { GeminiResponse } from "../types";
+import { buildSystemInstruction } from "../constants";
+import { GeminiResponse, Evidence } from "../types";
+import { GameConfig, DEFAULT_GAME_CONFIG } from "../gameConfig";
 
 
 
@@ -44,7 +45,8 @@ const responseSchema = {
     },
     location_name: { type: Type.STRING },
     is_game_over: { type: Type.BOOLEAN },
-    is_victory: { type: Type.BOOLEAN, description: "Set to true ONLY if the player explicitly wins or escapes." }
+    is_victory: { type: Type.BOOLEAN, description: "Set to true ONLY if the player explicitly wins or escapes." },
+    consumed_item_id: { type: Type.STRING, description: "ID of an inventory item consumed this turn (e.g. a protective item that saved the player). Null or empty if none." }
   },
   required: ["narrative", "choices", "image_prompt_english", "sanity_change", "location_name", "is_game_over"]
 };
@@ -67,7 +69,10 @@ export const generateNextTurn = async (
   apiKey?: string,
   baseUrl?: string,
   provider: 'gemini' | 'openai' = 'gemini',
-  model?: string
+  model?: string,
+  currentSanity: number = 100,
+  inventory: Evidence[] = [],
+  gameConfig: GameConfig = DEFAULT_GAME_CONFIG
 ): Promise<GeminiResponse> => {
   const effectiveApiKey = apiKey || process.env.API_KEY;
 
@@ -75,13 +80,28 @@ export const generateNextTurn = async (
     throw new Error("API Key not found");
   }
 
+  const systemInstruction = buildSystemInstruction(gameConfig);
+
   //Inject current rules into context (moved up for use in both providers)
   const rulesContext = currentRules.length > 0
     ? `Current Known Rules (DO NOT REPEAT THESE):\n${currentRules.map((r, i) => `- ${r}`).join('\n')}`
     : "Current Known Rules: None";
 
+  const inventoryContext = inventory.length > 0
+    ? `Current Inventory:\n${inventory.map(item => `- [${item.type}] ${item.name}: ${item.description}`).join('\n')}`
+    : "Current Inventory: Empty";
+
+  const turnNumber = history.length + 1;
+  const gamePhase = turnNumber <= 5 ? 'EARLY' : turnNumber <= 12 ? 'MID' : 'LATE';
+
   const prompt = `
+Current Turn Number: ${turnNumber} / Target: ${gameConfig.maxTurns}
+Game Phase: ${gamePhase}
+Current Sanity: ${currentSanity}/100
+
 ${rulesContext}
+
+${inventoryContext}
 
 Previous History:
 ${history.join('\n')}
@@ -112,7 +132,7 @@ Player Action: ${currentAction}
           { role: 'user', parts: [{ text: prompt }] }
         ],
         config: {
-          systemInstruction: SYSTEM_INSTRUCTION,
+          systemInstruction: systemInstruction,
           responseMimeType: "application/json",
           responseSchema: responseSchema,
           temperature: 0.8,
@@ -137,7 +157,7 @@ Player Action: ${currentAction}
         body: JSON.stringify({
           model: model || 'gpt-3.5-turbo', // Default if not selected
           messages: [
-            { role: "system", content: SYSTEM_INSTRUCTION },
+            { role: "system", content: systemInstruction },
             { role: "user", content: prompt + "\n\nIMPORTANT: You must respond in valid JSON format matching the schema." }
           ],
           response_format: { type: "json_object" },
@@ -201,7 +221,7 @@ export const testConnection = async (apiKey: string, baseUrl: string, provider: 
       }
       const ai = new GoogleGenAI(options);
       await ai.models.generateContent({
-        model: 'gemini-3-pro-preview',
+        model: 'gemini-3-flash-preview',
         contents: [{ role: 'user', parts: [{ text: "Test connection" }] }]
       });
       return true;

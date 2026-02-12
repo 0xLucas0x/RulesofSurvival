@@ -36,6 +36,7 @@ export interface GeminiResponse {
   location_name: string;
   is_game_over: boolean;
   is_victory?: boolean;
+  consumed_item_id?: string;
 }
 
 export enum GameStatus {
