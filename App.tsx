@@ -26,6 +26,7 @@ const App: React.FC = () => {
   const [imageModel, setImageModel] = useState("");
   const [imageBaseUrl, setImageBaseUrl] = useState("");
   const [imageApiKey, setImageApiKey] = useState("");
+  const [enableImageGen, setEnableImageGen] = useState(true);
 
   useEffect(() => {
     const storedApiKey = localStorage.getItem("gemini_api_key");
@@ -49,6 +50,9 @@ const App: React.FC = () => {
     if (storedImgModel) setImageModel(storedImgModel);
     if (storedImgBase) setImageBaseUrl(storedImgBase);
     if (storedImgKey) setImageApiKey(storedImgKey);
+
+    const storedEnableImageGen = localStorage.getItem("enable_image_gen");
+    if (storedEnableImageGen !== null) setEnableImageGen(storedEnableImageGen === 'true');
   }, []);
 
   const handleSaveSettings = (
@@ -60,7 +64,8 @@ const App: React.FC = () => {
     newImgProvider: 'pollinations' | 'openai',
     newImgModel: string,
     newImgBase: string,
-    newImgKey: string
+    newImgKey: string,
+    newEnableImageGen: boolean
   ) => {
     setApiKey(key);
     setBaseUrl(url);
@@ -71,6 +76,7 @@ const App: React.FC = () => {
     setImageModel(newImgModel);
     setImageBaseUrl(newImgBase);
     setImageApiKey(newImgKey);
+    setEnableImageGen(newEnableImageGen);
 
     localStorage.setItem("gemini_api_key", key);
     localStorage.setItem("gemini_base_url", url);
@@ -82,6 +88,7 @@ const App: React.FC = () => {
     localStorage.setItem("image_model", newImgModel);
     localStorage.setItem("image_base_url", newImgBase);
     localStorage.setItem("image_api_key", newImgKey);
+    localStorage.setItem("enable_image_gen", String(newEnableImageGen));
   };
 
   // To avoid duplicate API calls in Strict Mode
@@ -184,6 +191,7 @@ const App: React.FC = () => {
           llmProvider={provider}
           llmBaseUrl={baseUrl}
           llmApiKey={apiKey}
+          enableImageGen={enableImageGen}
         />
       </main>
 
@@ -205,6 +213,7 @@ const App: React.FC = () => {
         imageModel={imageModel}
         imageBaseUrl={imageBaseUrl}
         imageApiKey={imageApiKey}
+        enableImageGen={enableImageGen}
         onSave={handleSaveSettings}
       />
 

@@ -18,6 +18,7 @@ interface MainDisplayProps {
   llmProvider?: 'gemini' | 'openai';
   llmBaseUrl?: string;
   llmApiKey?: string;
+  enableImageGen?: boolean;
 }
 
 const getActionIcon = (type: string) => {
@@ -159,7 +160,8 @@ export const MainDisplay: React.FC<MainDisplayProps> = ({
   imageApiKey,
   llmProvider,
   llmBaseUrl,
-  llmApiKey
+  llmApiKey,
+  enableImageGen = true
 }) => {
   // Use Pollinations AI or OpenAI for dynamic image generation
   const [imageUrl, setImageUrl] = useState<string>('');
@@ -168,6 +170,12 @@ export const MainDisplay: React.FC<MainDisplayProps> = ({
   useEffect(() => {
     let active = true;
     const fetchImage = async () => {
+      // Skip image generation if disabled
+      if (!enableImageGen) {
+        setImageUrl('');
+        return;
+      }
+
       // Define the prompt and base URL
       const fullPrompt = imagePrompt + ", horror style, cinematic lighting, gritty, dark atmosphere, 8k, photorealistic, night vision or surveillance camera style";
 
@@ -250,7 +258,7 @@ export const MainDisplay: React.FC<MainDisplayProps> = ({
       active = false;
       // Ideally revoke object URL here but we need to track it.
     };
-  }, [imagePrompt, pollinationsApiKey, imageProvider, imageModel, imageBaseUrl, imageApiKey, llmProvider, llmBaseUrl, llmApiKey]);
+  }, [imagePrompt, pollinationsApiKey, imageProvider, imageModel, imageBaseUrl, imageApiKey, llmProvider, llmBaseUrl, llmApiKey, enableImageGen]);
 
   // Determine grid layout based on choice count
   const gridClasses = choices.length === 4
@@ -348,10 +356,10 @@ export const MainDisplay: React.FC<MainDisplayProps> = ({
           src={imageUrl}
           alt="Environment"
           className={`w-full h-full object-cover transition-all duration-700 ${isImageLoading
-              ? 'opacity-30 blur-[2px] scale-105 glitch-active'
-              : isLoading
-                ? 'opacity-40 blur-sm scale-105'
-                : 'opacity-60 scale-100'
+            ? 'opacity-30 blur-[2px] scale-105 glitch-active'
+            : isLoading
+              ? 'opacity-40 blur-sm scale-105'
+              : 'opacity-60 scale-100'
             }`}
           style={{ filter: `contrast(120%) saturate(${isImageLoading ? '20%' : '40%'}) sepia(30%) ${isImageLoading ? 'hue-rotate(15deg)' : ''}` }}
         />
