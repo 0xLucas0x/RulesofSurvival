@@ -10,12 +10,14 @@ import { MainDisplay } from './components/MainDisplay';
 import { CRTLayer } from './components/CRTLayer';
 import { EvidenceBoard } from './components/EvidenceBoard';
 import { SettingsModal } from './components/SettingsModal';
+import { GameIntro } from './components/GameIntro';
 
 const App: React.FC = () => {
   const [gameState, setGameState] = useState<GameState>(INITIAL_STATE);
   const [history, setHistory] = useState<string[]>([]);
   const [showEvidence, setShowEvidence] = useState(false);
   const [hasNewEvidence, setHasNewEvidence] = useState(false);
+  const [showIntro, setShowIntro] = useState(true);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [apiKey, setApiKey] = useState("");
   const [baseUrl, setBaseUrl] = useState("");
@@ -24,6 +26,7 @@ const App: React.FC = () => {
   const [chatModel, setChatModel] = useState("");
 
   const [imageProvider, setImageProvider] = useState<'pollinations' | 'openai'>('pollinations');
+  const [pollinationsModel, setPollinationsModel] = useState('flux');
   const [imageModel, setImageModel] = useState("");
   const [imageBaseUrl, setImageBaseUrl] = useState("");
   const [imageApiKey, setImageApiKey] = useState("");
@@ -44,11 +47,13 @@ const App: React.FC = () => {
     if (storedModel) setChatModel(storedModel);
 
     const storedImgProvider = localStorage.getItem("image_provider");
+    const storedPollModel = localStorage.getItem("pollinations_model");
     const storedImgModel = localStorage.getItem("image_model");
     const storedImgBase = localStorage.getItem("image_base_url");
     const storedImgKey = localStorage.getItem("image_api_key");
 
     if (storedImgProvider) setImageProvider(storedImgProvider as 'pollinations' | 'openai');
+    if (storedPollModel) setPollinationsModel(storedPollModel);
     if (storedImgModel) setImageModel(storedImgModel);
     if (storedImgBase) setImageBaseUrl(storedImgBase);
     if (storedImgKey) setImageApiKey(storedImgKey);
@@ -71,6 +76,7 @@ const App: React.FC = () => {
     newProvider: 'gemini' | 'openai',
     newModel: string,
     newImgProvider: 'pollinations' | 'openai',
+    newPollModel: string,
     newImgModel: string,
     newImgBase: string,
     newImgKey: string,
@@ -83,6 +89,7 @@ const App: React.FC = () => {
     setProvider(newProvider);
     setChatModel(newModel);
     setImageProvider(newImgProvider);
+    setPollinationsModel(newPollModel);
     setImageModel(newImgModel);
     setImageBaseUrl(newImgBase);
     setImageApiKey(newImgKey);
@@ -96,6 +103,7 @@ const App: React.FC = () => {
     localStorage.setItem("llm_model", newModel);
 
     localStorage.setItem("image_provider", newImgProvider);
+    localStorage.setItem("pollinations_model", newPollModel);
     localStorage.setItem("image_model", newImgModel);
     localStorage.setItem("image_base_url", newImgBase);
     localStorage.setItem("image_api_key", newImgKey);
@@ -197,7 +205,8 @@ const App: React.FC = () => {
 
   return (
     <div className="h-screen w-screen overflow-hidden flex flex-col font-body bg-black text-gray-200">
-      <CRTLayer />
+      {showIntro && <GameIntro onStart={() => setShowIntro(false)} />}
+      <CRTLayer sanity={gameState.sanity} />
 
       <Header
         sanity={gameState.sanity}
@@ -218,6 +227,7 @@ const App: React.FC = () => {
           isGameOver={gameState.isGameOver}
           isVictory={gameState.isVictory}
           pollinationsApiKey={pollinationsApiKey}
+          pollinationsModel={pollinationsModel}
           imageProvider={imageProvider}
           imageModel={imageModel}
           imageBaseUrl={imageBaseUrl}
@@ -233,6 +243,7 @@ const App: React.FC = () => {
         isOpen={showEvidence}
         onClose={() => setShowEvidence(false)}
         inventory={gameState.inventory}
+        turnCount={gameState.turnCount}
       />
 
       <SettingsModal
@@ -241,6 +252,7 @@ const App: React.FC = () => {
         apiKey={apiKey}
         baseUrl={baseUrl}
         pollinationsApiKey={pollinationsApiKey}
+        pollinationsModel={pollinationsModel}
         provider={provider}
         chatModel={chatModel}
         imageProvider={imageProvider}

@@ -1,115 +1,219 @@
-import React from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Evidence } from '../types';
+import { Polaroid, StickyNote, ConfidentialDoc, KeyItem } from './EvidenceItems';
 
 interface EvidenceBoardProps {
   isOpen: boolean;
   onClose: () => void;
   inventory: Evidence[];
+  turnCount: number;
 }
 
-const getItemIcon = (type: string) => {
-  switch (type) {
-    case 'document': return 'description';
-    case 'photo': return 'image';
-    case 'key': return 'vpn_key';
-    case 'item': return 'extension';
-    default: return 'help_center';
-  }
-};
+interface Position {
+  x: number;
+  y: number;
+  rotation: number;
+  zIndex: number;
+}
 
-const getItemColor = (type: string) => {
-  switch (type) {
-    case 'document': return 'border-yellow-700/50 bg-yellow-900/10 text-yellow-500';
-    case 'photo': return 'border-blue-700/50 bg-blue-900/10 text-blue-400';
-    case 'key': return 'border-red-700/50 bg-red-900/10 text-red-400';
-    default: return 'border-gray-600 bg-gray-800/20 text-gray-400';
-  }
-};
+// ------------------------------------------------------------------
+// Main Board Component
+// ------------------------------------------------------------------
+export const EvidenceBoard: React.FC<EvidenceBoardProps> = ({ isOpen, onClose, inventory, turnCount }) => {
+  const [positions, setPositions] = useState<{ [id: string]: Position }>({});
+  const [isDragging, setIsDragging] = useState<string | null>(null);
+  const dragOffset = useRef({ x: 0, y: 0 });
+  const boardRef = useRef<HTMLDivElement>(null);
+  const maxZIndex = useRef(10);
 
-export const EvidenceBoard: React.FC<EvidenceBoardProps> = ({ isOpen, onClose, inventory }) => {
+  // Load positions from localStorage on mount
+  useEffect(() => {
+    const saved = localStorage.getItem('evidence_board_positions');
+    if (saved) {
+      try {
+        setPositions(JSON.parse(saved));
+      } catch (e) {
+        console.error("Failed to parse evidence positions", e);
+      }
+    }
+  }, []);
+
+  // Initialize new items with random positions if not present
+  useEffect(() => {
+    if (inventory.length === 0) return;
+
+    setPositions(prev => {
+      const next = { ...prev };
+      let hasChanges = false;
+      const boardWidth = boardRef.current ? boardRef.current.clientWidth : window.innerWidth * 0.8;
+      const boardHeight = boardRef.current ? boardRef.current.clientHeight : window.innerHeight * 0.8;
+
+      inventory.forEach(item => {
+        if (!next[item.id]) {
+          hasChanges = true;
+          // Random scatter
+          next[item.id] = {
+            x: Math.random() * (boardWidth - 200) + 50,
+            y: Math.random() * (boardHeight - 200) + 50,
+            rotation: (Math.random() - 0.5) * 20, // -10 to 10 degrees
+            zIndex: maxZIndex.current++
+          };
+        }
+      });
+
+      if (hasChanges) {
+        localStorage.setItem('evidence_board_positions', JSON.stringify(next));
+        return next;
+      }
+      return prev;
+    });
+  }, [inventory, isOpen]);
+
+  // Drag Handlers
+  const handleMouseDown = (e: React.MouseEvent, id: string) => {
+    e.stopPropagation();
+    e.preventDefault(); // Prevent text selection etc.
+
+    // Bring to front
+    maxZIndex.current += 1;
+    setPositions(prev => ({
+      ...prev,
+      [id]: { ...prev[id], zIndex: maxZIndex.current }
+    }));
+
+    setIsDragging(id);
+
+    // Calculate offset from item top-left to mouse
+    // We need the item's current visual position relative to the board
+    // However, since we position absolute based on `positions` state, we can just use that.
+    // Mouse coords relative to board:
+    if (!boardRef.current) return;
+    const boardRect = boardRef.current.getBoundingClientRect();
+    const mouseX = e.clientX - boardRect.left;
+    const mouseY = e.clientY - boardRect.top;
+
+    const currentPos = positions[id];
+    dragOffset.current = {
+      x: mouseX - currentPos.x,
+      y: mouseY - currentPos.y
+    };
+  };
+
+  const handleMouseMove = (e: MouseEvent) => {
+    if (!isDragging || !boardRef.current) return;
+
+    const boardRect = boardRef.current.getBoundingClientRect();
+    const mouseX = e.clientX - boardRect.left;
+    const mouseY = e.clientY - boardRect.top;
+
+    const newX = mouseX - dragOffset.current.x;
+    const newY = mouseY - dragOffset.current.y;
+
+    setPositions(prev => ({
+      ...prev,
+      [isDragging]: { ...prev[isDragging], x: newX, y: newY }
+    }));
+  };
+
+  const handleMouseUp = () => {
+    if (isDragging) {
+      setIsDragging(null);
+      // Save on drop
+      localStorage.setItem('evidence_board_positions', JSON.stringify(positions));
+    }
+  };
+
+  // Attach global mouse listeners for drag
+  useEffect(() => {
+    if (isDragging) {
+      window.addEventListener('mousemove', handleMouseMove);
+      window.addEventListener('mouseup', handleMouseUp);
+    } else {
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    }
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [isDragging, positions]); // depend on positions to save correctly in closure if needed, though state updater handles it
+
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      {/* Backdrop with blur and darken */}
-      <div 
-        className="absolute inset-0 bg-black/90 backdrop-blur-sm transition-opacity"
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-0 md:p-4 overflow-hidden">
+      {/* Back drop */}
+      <div
+        className="absolute inset-0 bg-black/95 backdrop-blur-sm"
         onClick={onClose}
       ></div>
 
-      {/* Main Board Container */}
-      <div className="relative w-full max-w-5xl h-[80vh] bg-[#1a1a1a] border-4 border-metal-dark shadow-[0_0_50px_rgba(0,0,0,0.8)] flex flex-col overflow-hidden animate-[pulse-fast_0.2s_ease-out_1]">
-        
-        {/* CRT Scanline overlay for the modal specifically */}
-        <div className="absolute inset-0 pointer-events-none opacity-10 bg-[url('https://www.transparenttextures.com/patterns/dark-matter.png')]"></div>
+      {/* Main Board Area */}
+      <div
+        className="relative w-full h-full md:h-[90vh] bg-[#2a2323] overflow-hidden shadow-2xl border-y-8 md:border-8 border-[#3e2c2c] flex flex-col"
+        onClick={(e) => e.stopPropagation()} // Prevent closing when clicking board background
+      >
+        {/* Cork/Felt Texture */}
+        <div className="absolute inset-0 opacity-40 bg-[url('https://www.transparenttextures.com/patterns/dark-matter.png')] pointer-events-none"></div>
+        {/* Vignette */}
+        <div className="absolute inset-0 pointer-events-none bg-[radial-gradient(circle_at_center,transparent_50%,rgba(0,0,0,0.8)_100%)]"></div>
 
-        {/* Header */}
-        <div className="h-16 bg-metal-dark border-b-2 border-rust flex items-center justify-between px-6 shrink-0 relative z-10">
-          <div className="flex items-center gap-3">
-             <span className="material-symbols-outlined text-rust-light text-3xl">folder_shared</span>
-             <h2 className="font-header text-2xl text-hospital-white tracking-[0.2em] uppercase shadow-black drop-shadow-md">
-               物证管理 // EVIDENCE_BOARD
-             </h2>
-          </div>
-          <button 
-            onClick={onClose}
-            className="p-2 hover:bg-red-900/50 rounded transition-colors text-hospital-white border border-transparent hover:border-red-500 group"
-          >
-            <span className="material-symbols-outlined group-hover:rotate-90 transition-transform">close</span>
-          </button>
+        {/* Tools/Header overlay (Optional) */}
+        <div className="absolute top-4 left-4 z-50 pointer-events-none">
+          <h2 className="font-header text-4xl text-white/50 tracking-widest uppercase drop-shadow-md select-none transform -rotate-2">
+            生存记录 第{turnCount}天
+          </h2>
         </div>
 
-        {/* Grid Content */}
-        <div className="flex-1 overflow-y-auto p-6 md:p-10 custom-scrollbar bg-[#121212] relative">
-          
-          {/* Background decoration: "Confidential" stamp */}
-          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 pointer-events-none opacity-5 rotate-[-15deg] select-none">
-             <span className="font-header text-[15rem] text-red-600 border-8 border-red-600 px-10 rounded-xl">绝密</span>
-          </div>
+        <button
+          onClick={onClose}
+          className="absolute top-4 right-4 z-50 bg-red-900/80 hover:bg-red-700 text-white px-4 py-2 rounded font-header border border-red-500 shadow-lg transition-transform hover:scale-105 active:scale-95 flex items-center gap-2"
+        >
+          <span className="material-symbols-outlined">arrow_back</span>
+          返回病房
+        </button>
 
-          {inventory.length === 0 ? (
-            <div className="h-full flex flex-col items-center justify-center text-gray-600 font-header">
-              <span className="material-symbols-outlined text-6xl mb-4 opacity-50">folder_off</span>
-              <p className="text-xl tracking-widest">暂无证据收录</p>
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {inventory.map((item) => (
-                <div 
-                  key={item.id}
-                  className={`
-                    relative group flex flex-col p-4 border-2 ${getItemColor(item.type)}
-                    bg-black/40 backdrop-blur-md transition-all duration-300
-                    hover:scale-[1.02] hover:bg-black/60 hover:shadow-[0_0_15px_rgba(0,0,0,0.5)]
-                  `}
-                >
-                  {/* Pin Graphic */}
-                  <div className="absolute -top-3 left-1/2 -translate-x-1/2 w-4 h-4 rounded-full bg-red-800 shadow-sm border border-black z-20"></div>
+        {/* Board Content Area */}
+        <div ref={boardRef} className="w-full h-full relative cursor-grab active:cursor-grabbing">
+          {inventory.map((item) => {
+            const pos = positions[item.id] || { x: 100, y: 100, rotation: 0, zIndex: 1 };
 
-                  <div className="flex items-start gap-4 mb-3 pb-3 border-b border-white/10">
-                    <div className="p-3 bg-white/5 rounded border border-white/10">
-                      <span className="material-symbols-outlined text-3xl opacity-80">{getItemIcon(item.type)}</span>
-                    </div>
-                    <div className="flex-1 min-w-0">
-                       <span className="text-[10px] uppercase font-mono tracking-widest opacity-50 block mb-1">
-                         证据编号 #{item.id.slice(0,4)}
-                       </span>
-                       <h3 className="font-header text-lg md:text-xl font-bold truncate leading-tight">
-                         {item.name}
-                       </h3>
-                    </div>
-                  </div>
-                  
-                  <div className="flex-1 font-body text-gray-300 text-sm leading-relaxed text-justify opacity-90">
-                    {item.description}
-                  </div>
+            // Render specific component based on type
+            let Component = StickyNote; // Default
+            if (item.type === 'photo') Component = Polaroid;
+            if (item.type === 'document') Component = ConfidentialDoc;
+            if (item.type === 'key') Component = KeyItem;
 
-                  {/* Corner Decoration */}
-                  <div className="absolute bottom-0 right-0 w-8 h-8 border-b-2 border-r-2 border-white/20 rounded-br-lg opacity-50 group-hover:opacity-100 transition-opacity"></div>
-                </div>
-              ))}
+            return (
+              <div
+                key={item.id}
+                onMouseDown={(e) => handleMouseDown(e, item.id)}
+                style={{
+                  position: 'absolute',
+                  left: pos.x,
+                  top: pos.y,
+                  transform: `rotate(${pos.rotation}deg)`,
+                  zIndex: pos.zIndex,
+                  cursor: isDragging === item.id ? 'grabbing' : 'grab'
+                }}
+                className="select-none transition-shadow hover:z-[9999!important]" // hover z-index hack might flicker, handled by state instead
+              >
+                {/* Visual Component */}
+                <Component item={item} />
+              </div>
+            );
+          })}
+
+          {inventory.length === 0 && (
+            <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+              <p className="font-header text-3xl text-white/20 select-none">暂无关键线索</p>
             </div>
           )}
+        </div>
+
+        {/* Footer info */}
+        <div className="absolute bottom-0 w-full bg-black/80 text-center py-2 border-t border-white/10 pointer-events-none">
+          <p className="font-mono text-xs text-green-500/50 tracking-[0.5em]">生存状态: 探索中 // 关键线索: {inventory.length}/12 已发现</p>
         </div>
       </div>
     </div>

@@ -2,12 +2,16 @@ import React, { useState, useEffect } from 'react';
 import { testConnection } from '../services/geminiService';
 import { GameConfig, DEFAULT_GAME_CONFIG, DifficultyPreset, DIFFICULTY_PRESETS, DIFFICULTY_LABELS } from '../gameConfig';
 
+const POLLINATIONS_MODELS = ['flux', 'zimage', 'klein', 'klein-large'] as const;
+type PollinationsModel = typeof POLLINATIONS_MODELS[number];
+
 interface SettingsModalProps {
     isOpen: boolean;
     onClose: () => void;
     apiKey: string;
     baseUrl: string;
     pollinationsApiKey: string;
+    pollinationsModel: string;
     onSave: (
         apiKey: string,
         baseUrl: string,
@@ -15,6 +19,7 @@ interface SettingsModalProps {
         provider: 'gemini' | 'openai',
         model: string,
         imageProvider: 'pollinations' | 'openai',
+        pollinationsModel: string,
         imageModel: string,
         imageBaseUrl: string,
         imageApiKey: string,
@@ -37,6 +42,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     apiKey: initialApiKey,
     baseUrl: initialBaseUrl,
     pollinationsApiKey: initialPollinationsApiKey,
+    pollinationsModel: initialPollinationsModel,
     provider: initialProvider,
     chatModel: initialModel,
     imageProvider: initialImgProvider,
@@ -50,6 +56,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     const [apiKey, setApiKey] = useState(initialApiKey);
     const [baseUrl, setBaseUrl] = useState(initialBaseUrl);
     const [pollinationsApiKey, setPollinationsApiKey] = useState(initialPollinationsApiKey);
+    const [pollinationsModel, setPollinationsModel] = useState<string>(initialPollinationsModel || 'flux');
     const [provider, setProvider] = useState<'gemini' | 'openai'>(initialProvider || 'gemini');
     const [chatModel, setChatModel] = useState(initialModel || '');
 
@@ -73,10 +80,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             setApiKey(initialApiKey);
             setBaseUrl(initialBaseUrl);
             setPollinationsApiKey(initialPollinationsApiKey);
+            setPollinationsModel(initialPollinationsModel || 'flux');
             setProvider(initialProvider || 'gemini');
             setChatModel(initialModel || '');
         }
-    }, [isOpen, initialApiKey, initialBaseUrl, initialPollinationsApiKey, initialProvider, initialModel]);
+    }, [isOpen, initialApiKey, initialBaseUrl, initialPollinationsApiKey, initialPollinationsModel, initialProvider, initialModel]);
 
     useEffect(() => {
         if (isOpen) {
@@ -92,7 +100,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     if (!isOpen) return null;
 
     const handleSave = () => {
-        onSave(apiKey, baseUrl, pollinationsApiKey, provider, chatModel, imageProvider, imageModel, imageBaseUrl, imageApiKey, enableImageGen, localGameConfig);
+        onSave(apiKey, baseUrl, pollinationsApiKey, provider, chatModel, imageProvider, pollinationsModel, imageModel, imageBaseUrl, imageApiKey, enableImageGen, localGameConfig);
         onClose();
     };
 
@@ -127,24 +135,15 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     const handleTestImage = async () => {
         setImageTestStatus('testing');
         try {
-            const testUrl = `https://gen.pollinations.ai/image/test?width=64&height=64&nologo=true&seed=${Math.floor(Math.random() * 1000000)}${pollinationsApiKey ? `&key=${pollinationsApiKey}` : ''}`;
-            const headers: HeadersInit = {};
-            if (pollinationsApiKey) {
-                headers['Authorization'] = `Bearer ${pollinationsApiKey}`;
-            }
-            // Also keep query param as fallback/alternative if header fails for some key types, 
-            // but for 'Missing Turnstile' usually header is needed. 
-            // Actually, let's try sending BOTH or just header. 
-            // Documentation says secret keys use header.
-
-            const response = await fetch(testUrl, {
-                headers
-            });
-            if (response.ok) {
-                setImageTestStatus('success');
-            } else {
+            // Use Image() to test — avoids CORS entirely (img tags don't trigger CORS)
+            const testUrl = `https://image.pollinations.ai/prompt/test?width=64&height=64&model=${pollinationsModel}&nologo=true&seed=${Math.floor(Math.random() * 1000000)}${pollinationsApiKey ? `&key=${pollinationsApiKey}` : ''}`;
+            const img = new Image();
+            img.onload = () => setImageTestStatus('success');
+            img.onerror = () => {
+                console.error('[Pollinations Test] Image failed to load');
                 setImageTestStatus('error');
-            }
+            };
+            img.src = testUrl;
         } catch (error) {
             console.error("Image Test Failed:", error);
             setImageTestStatus('error');
@@ -302,12 +301,23 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
                             {imageProvider === 'pollinations' && (
                                 <div>
-                                    <label className="block text-hospital-white mb-1 text-sm">Pollinations Image API Key (Optional)</label>
+                                    <label className="block text-hospital-white mb-1 text-sm">Pollinations 模型</label>
+                                    <select
+                                        value={pollinationsModel}
+                                        onChange={(e) => setPollinationsModel(e.target.value)}
+                                        className="w-full bg-black border-2 border-metal-grey text-sickly-green p-2 focus:outline-none focus:border-sickly-green mb-3"
+                                    >
+                                        {POLLINATIONS_MODELS.map(m => (
+                                            <option key={m} value={m}>{m}</option>
+                                        ))}
+                                    </select>
+
+                                    <label className="block text-hospital-white mb-1 text-sm">Pollinations API Key (可选)</label>
                                     <input
                                         type="password"
                                         value={pollinationsApiKey}
                                         onChange={(e) => setPollinationsApiKey(e.target.value)}
-                                        placeholder="Pollinations.ai Key (for higher limits)"
+                                        placeholder="Pollinations.ai Key (提高速率限制)"
                                         className="w-full bg-black border-2 border-metal-grey text-sickly-green p-2 focus:outline-none focus:border-sickly-green placeholder-gray-700"
                                     />
                                     <div className="flex justify-end mt-2">

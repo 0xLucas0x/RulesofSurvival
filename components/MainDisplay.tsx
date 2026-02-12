@@ -10,6 +10,7 @@ interface MainDisplayProps {
   isGameOver: boolean;
   isVictory?: boolean;
   pollinationsApiKey?: string;
+  pollinationsModel?: string;
   imageProvider?: 'pollinations' | 'openai';
   imageModel?: string;
   imageBaseUrl?: string;
@@ -154,6 +155,7 @@ export const MainDisplay: React.FC<MainDisplayProps> = ({
   isGameOver,
   isVictory,
   pollinationsApiKey,
+  pollinationsModel = 'flux',
   imageProvider,
   imageModel,
   imageBaseUrl,
@@ -212,44 +214,13 @@ export const MainDisplay: React.FC<MainDisplayProps> = ({
         return;
       }
 
-      // Pollinations Logic
-      // -----------------
+      // Pollinations Logic — use direct img src URL (avoids CORS)
+      // img tags are not subject to CORS, so we can pass the key as a query param
       const encodedPrompt = encodeURIComponent(fullPrompt);
-      const url = `https://gen.pollinations.ai/image/${encodedPrompt}?width=1280&height=720&nologo=true&seed=${Math.floor(Math.random() * 1000000)}${pollinationsApiKey ? `&key=${pollinationsApiKey}` : ''}`;
+      const seed = Math.floor(Math.random() * 1000000);
+      const imageUrl = `https://image.pollinations.ai/prompt/${encodedPrompt}?width=1280&height=720&model=${pollinationsModel}&nologo=true&seed=${seed}${pollinationsApiKey ? `&key=${pollinationsApiKey}` : ''}`;
 
-      if (!pollinationsApiKey) {
-        // No key? Use direct URL (legacy/free tier might still work on param, or just usage limit)
-        // Actually, let's use the gen URL which is the new standard.
-        // If no key, we just set the URL and let the img tag handle it? 
-        // Or fetch it anyway to be consistent? 
-        // Let's use direct URL for no-key to be faster/simpler, but use the NEW endpoint structure.
-        if (active) setImageUrl(url);
-        return;
-      }
-
-      // If key exists, we MUST use header auth to avoid Turnstile issues
-      setIsImageLoading(true);
-      try {
-        const response = await fetch(url, {
-          headers: {
-            'Authorization': `Bearer ${pollinationsApiKey}`
-          }
-        });
-        if (response.ok) {
-          const blob = await response.blob();
-          const objectUrl = URL.createObjectURL(blob);
-          if (active) setImageUrl(objectUrl);
-        } else {
-          // Fallback to direct URL if fetch fails (maybe key is invalid but free tier works?)
-          console.error("Image fetch failed, falling back to direct URL");
-          if (active) setImageUrl(url);
-        }
-      } catch (e) {
-        console.error("Image fetch error:", e);
-        if (active) setImageUrl(url);
-      } finally {
-        if (active) setIsImageLoading(false);
-      }
+      if (active) setImageUrl(imageUrl);
     };
 
     fetchImage();
@@ -258,7 +229,7 @@ export const MainDisplay: React.FC<MainDisplayProps> = ({
       active = false;
       // Ideally revoke object URL here but we need to track it.
     };
-  }, [imagePrompt, pollinationsApiKey, imageProvider, imageModel, imageBaseUrl, imageApiKey, llmProvider, llmBaseUrl, llmApiKey, enableImageGen]);
+  }, [imagePrompt, pollinationsApiKey, pollinationsModel, imageProvider, imageModel, imageBaseUrl, imageApiKey, llmProvider, llmBaseUrl, llmApiKey, enableImageGen]);
 
   // Determine grid layout based on choice count
   const gridClasses = choices.length === 4

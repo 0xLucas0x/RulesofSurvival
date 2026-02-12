@@ -12,10 +12,10 @@ export interface GameConfig {
 }
 
 export const DEFAULT_GAME_CONFIG: GameConfig = {
-    maxTurns: 20,
-    sanityPenaltyLight: -10,
-    sanityPenaltyRule: -35,
-    sanityPenaltyFatal: -80,
+    maxTurns: 15,
+    sanityPenaltyLight: -5,
+    sanityPenaltyRule: -20,
+    sanityPenaltyFatal: -60,
     safeChoiceMaxRatio: 0.5,
 };
 
@@ -23,24 +23,24 @@ export type DifficultyPreset = 'easy' | 'normal' | 'hard';
 
 export const DIFFICULTY_PRESETS: Record<DifficultyPreset, Partial<GameConfig>> = {
     easy: {
-        maxTurns: 25,
-        sanityPenaltyLight: -5,
-        sanityPenaltyRule: -20,
-        sanityPenaltyFatal: -50,
+        maxTurns: 18,
+        sanityPenaltyLight: -3,
+        sanityPenaltyRule: -15,
+        sanityPenaltyFatal: -40,
         safeChoiceMaxRatio: 0.66,
     },
     normal: {
-        maxTurns: 20,
-        sanityPenaltyLight: -10,
-        sanityPenaltyRule: -35,
-        sanityPenaltyFatal: -80,
+        maxTurns: 15,
+        sanityPenaltyLight: -5,
+        sanityPenaltyRule: -20,
+        sanityPenaltyFatal: -60,
         safeChoiceMaxRatio: 0.5,
     },
     hard: {
-        maxTurns: 15,
-        sanityPenaltyLight: -15,
-        sanityPenaltyRule: -50,
-        sanityPenaltyFatal: -100,
+        maxTurns: 12,
+        sanityPenaltyLight: -10,
+        sanityPenaltyRule: -35,
+        sanityPenaltyFatal: -80,
         safeChoiceMaxRatio: 0.33,
     },
 };

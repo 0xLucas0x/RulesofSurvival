@@ -92,6 +92,171 @@
       background: #8b4513;
       border-radius: 4px;
     }
+
+    /* ========================= */
+    /* SANITY VISUAL EFFECTS     */
+    /* ========================= */
+
+    /* Screen shake - mild */
+    @keyframes screen-shake {
+      0% {
+        transform: translate(0, 0);
+      }
+
+      25% {
+        transform: translate(-1px, 1px);
+      }
+
+      50% {
+        transform: translate(1px, -1px);
+      }
+
+      75% {
+        transform: translate(-1px, -1px);
+      }
+
+      100% {
+        transform: translate(0, 0);
+      }
+    }
+
+    /* Screen shake - heavy */
+    @keyframes screen-shake-heavy {
+      0% {
+        transform: translate(0, 0) rotate(0deg);
+      }
+
+      20% {
+        transform: translate(-3px, 2px) rotate(-0.3deg);
+      }
+
+      40% {
+        transform: translate(2px, -3px) rotate(0.2deg);
+      }
+
+      60% {
+        transform: translate(-2px, -1px) rotate(-0.1deg);
+      }
+
+      80% {
+        transform: translate(3px, 1px) rotate(0.3deg);
+      }
+
+      100% {
+        transform: translate(0, 0) rotate(0deg);
+      }
+    }
+
+    /* RGB chromatic aberration drift */
+    .sanity-rgb-drift {
+      animation: rgb-drift 2s ease-in-out infinite alternate;
+    }
+
+    @keyframes rgb-drift {
+      0% {
+        transform: translate(0, 0);
+      }
+
+      33% {
+        transform: translate(2px, -1px);
+      }
+
+      66% {
+        transform: translate(-1px, 2px);
+      }
+
+      100% {
+        transform: translate(1px, -2px);
+      }
+    }
+
+    /* Blood vignette pulsing */
+    .sanity-vignette-pulse {
+      animation: vignette-pulse 3s ease-in-out infinite;
+    }
+
+    @keyframes vignette-pulse {
+
+      0%,
+      100% {
+        opacity: 1;
+      }
+
+      50% {
+        opacity: 0.6;
+      }
+    }
+
+    /* Animated noise / static grain */
+    .sanity-noise {
+      background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E");
+      background-size: 256px 256px;
+      animation: noise-scroll 0.2s steps(4) infinite;
+    }
+
+    @keyframes noise-scroll {
+      0% {
+        background-position: 0 0;
+      }
+
+      25% {
+        background-position: 100px -50px;
+      }
+
+      50% {
+        background-position: -75px 100px;
+      }
+
+      75% {
+        background-position: 50px -100px;
+      }
+
+      100% {
+        background-position: -100px 50px;
+      }
+    }
+
+    /* Horizontal glitch bars */
+    .sanity-glitch-bars {
+      background: repeating-linear-gradient(0deg,
+          transparent,
+          transparent 95%,
+          rgba(255, 0, 0, 0.08) 95%,
+          rgba(255, 0, 0, 0.08) 100%);
+      background-size: 100% 80px;
+      animation: glitch-bars-scroll 0.5s steps(3) infinite;
+    }
+
+    @keyframes glitch-bars-scroll {
+      0% {
+        background-position: 0 0;
+      }
+
+      33% {
+        background-position: 0 30px;
+      }
+
+      66% {
+        background-position: 0 -20px;
+      }
+
+      100% {
+        background-position: 0 10px;
+      }
+    }
+
+    /* Intro fade-in animation */
+    @keyframes fadeSlideIn {
+      from {
+        opacity: 0;
+        transform: translateY(8px);
+      }
+
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
   </style>
 
 </head>
