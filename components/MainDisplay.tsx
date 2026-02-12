@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Choice } from '../types';
+import { generateSceneImage } from '../services/geminiService';
 
 interface MainDisplayProps {
   imagePrompt: string;
@@ -55,6 +56,14 @@ const getActionStyles = (type: string) => {
     default:
       return 'border-gray-700 text-gray-300 hover:bg-gray-800';
   }
+};
+
+const buildSessionCode = (text: string): string => {
+  let hash = 0;
+  for (let i = 0; i < text.length; i++) {
+    hash = (hash * 31 + text.charCodeAt(i)) % 10000;
+  }
+  return String(hash).padStart(4, '0');
 };
 
 // --- Typewriter Component ---
@@ -168,6 +177,19 @@ export const MainDisplay: React.FC<MainDisplayProps> = ({
   // Use Pollinations AI or OpenAI for dynamic image generation
   const [imageUrl, setImageUrl] = useState<string>('');
   const [isImageLoading, setIsImageLoading] = useState(false);
+  const [clockText, setClockText] = useState('');
+
+  useEffect(() => {
+    const tick = () => {
+      setClockText(new Date().toLocaleTimeString('zh-CN', { hour12: false }));
+    };
+
+    tick();
+    const timer = window.setInterval(tick, 1000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  const sessionCode = buildSessionCode(narrative || imagePrompt || '0000');
 
   useEffect(() => {
     let active = true;
@@ -196,31 +218,26 @@ export const MainDisplay: React.FC<MainDisplayProps> = ({
         usingLlmFallback: (!imageBaseUrl || !imageApiKey) && llmProvider === 'openai'
       });
 
-      if (currentProvider === 'openai') {
-        if (!effectiveImageApiKey || !effectiveImageBaseUrl) {
-          console.warn("[MainDisplay] OpenAI Image Provider selected but missing configuration (no image or LLM credentials found)");
-          return;
-        }
-        setIsImageLoading(true);
-        try {
-          const { generateOpenAIImage } = await import('../services/geminiService');
-          const b64Image = await generateOpenAIImage(fullPrompt, effectiveImageApiKey, effectiveImageBaseUrl, imageModel || 'dall-e-3');
-          if (active) setImageUrl(b64Image);
-        } catch (e) {
-          console.error("OpenAI Image Gen Error:", e);
-        } finally {
-          if (active) setIsImageLoading(false);
-        }
+      if (currentProvider === 'openai' && (!effectiveImageApiKey || !effectiveImageBaseUrl)) {
+        console.warn('[MainDisplay] OpenAI Image Provider selected but missing configuration (no image or LLM credentials found)');
         return;
       }
 
-      // Pollinations Logic — use direct img src URL (avoids CORS)
-      // img tags are not subject to CORS, so we can pass the key as a query param
-      const encodedPrompt = encodeURIComponent(fullPrompt);
-      const seed = Math.floor(Math.random() * 1000000);
-      const imageUrl = `https://image.pollinations.ai/prompt/${encodedPrompt}?width=1280&height=720&model=${pollinationsModel}&nologo=true&seed=${seed}${pollinationsApiKey ? `&key=${pollinationsApiKey}` : ''}`;
-
-      if (active) setImageUrl(imageUrl);
+      setIsImageLoading(true);
+      try {
+        const generatedImageUrl = await generateSceneImage(fullPrompt, currentProvider, {
+          model: currentProvider === 'openai' ? (imageModel || 'dall-e-3') : undefined,
+          baseUrl: currentProvider === 'openai' ? effectiveImageBaseUrl : undefined,
+          apiKey: currentProvider === 'openai' ? effectiveImageApiKey : undefined,
+          pollinationsApiKey,
+          pollinationsModel,
+        });
+        if (active) setImageUrl(generatedImageUrl);
+      } catch (e) {
+        console.error('Image generation error:', e);
+      } finally {
+        if (active) setIsImageLoading(false);
+      }
     };
 
     fetchImage();
@@ -369,7 +386,7 @@ export const MainDisplay: React.FC<MainDisplayProps> = ({
         <span className="text-hospital-white/60 mt-1">机位_04 [夜视模式]</span>
       </div>
       <div className="absolute top-4 right-4 z-10 font-header text-hospital-white/50 text-xs md:text-sm tracking-widest pointer-events-none text-right">
-        <div>{new Date().toLocaleTimeString('zh-CN', { hour12: false })}</div>
+        <div>{clockText || '--:--:--'}</div>
         <div className="text-[10px] mt-1 opacity-50">ISO 12800 • f/1.4</div>
       </div>
 
@@ -403,7 +420,7 @@ export const MainDisplay: React.FC<MainDisplayProps> = ({
                 <div className={`w-2 h-2 ${isVictory ? 'bg-emerald-500' : 'bg-red-900'} rounded-full`}></div>
                 <span className="font-header text-[10px] text-white/40 tracking-widest uppercase">系统日志_自动存档.txt</span>
               </div>
-              <span className={`font-mono text-[10px] ${isVictory ? 'text-emerald-500/60' : 'text-red-500/60'}`}>{Math.floor(Math.random() * 9999)}-X</span>
+              <span className={`font-mono text-[10px] ${isVictory ? 'text-emerald-500/60' : 'text-red-500/60'}`}>{sessionCode}-X</span>
             </div>
 
             {/* Content Area */}

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { testConnection } from '../services/geminiService';
+import { generateSceneImage, testConnection } from '../services/geminiService';
 import { GameConfig, DEFAULT_GAME_CONFIG, DifficultyPreset, DIFFICULTY_PRESETS, DIFFICULTY_LABELS } from '../gameConfig';
 
 const POLLINATIONS_MODELS = ['flux', 'zimage', 'klein', 'klein-large'] as const;
@@ -135,15 +135,15 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     const handleTestImage = async () => {
         setImageTestStatus('testing');
         try {
-            // Use Image() to test — avoids CORS entirely (img tags don't trigger CORS)
-            const testUrl = `https://image.pollinations.ai/prompt/test?width=64&height=64&model=${pollinationsModel}&nologo=true&seed=${Math.floor(Math.random() * 1000000)}${pollinationsApiKey ? `&key=${pollinationsApiKey}` : ''}`;
-            const img = new Image();
-            img.onload = () => setImageTestStatus('success');
-            img.onerror = () => {
-                console.error('[Pollinations Test] Image failed to load');
-                setImageTestStatus('error');
-            };
-            img.src = testUrl;
+            const providerToTest = imageProvider || 'pollinations';
+            await generateSceneImage('hospital corridor cinematic test frame', providerToTest, {
+                model: providerToTest === 'openai' ? (imageModel || 'dall-e-3') : undefined,
+                baseUrl: providerToTest === 'openai' ? imageBaseUrl : undefined,
+                apiKey: providerToTest === 'openai' ? imageApiKey : undefined,
+                pollinationsApiKey,
+                pollinationsModel,
+            });
+            setImageTestStatus('success');
         } catch (error) {
             console.error("Image Test Failed:", error);
             setImageTestStatus('error');
