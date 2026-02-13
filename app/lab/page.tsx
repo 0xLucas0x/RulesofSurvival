@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { INITIAL_STATE } from '../../constants';
+import { DEFAULT_GAME_CONFIG } from '../../gameConfig';
 import type { Choice, Evidence, GeminiResponse, StoryEvaluation } from '../../types';
 import { evaluateStory } from '../../services/geminiService';
 import {
@@ -54,23 +55,41 @@ const DEFAULT_CONFIG: LabConfig = {
 const specialRuleDropKeywords = ['完整守则', '整页守则', '规则汇编', '值班手册', '患者守则原件', '公告栏整版'];
 
 const postJsonWithTimeout = async <T,>(url: string, payload: Record<string, unknown>, timeoutMs: number): Promise<T> => {
-  const controller = new AbortController();
-  const timer = window.setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-      signal: controller.signal,
-    });
+  const executeOnce = async (): Promise<T> => {
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+        signal: controller.signal,
+      });
 
-    const data = await response.json().catch(() => ({}));
-    if (!response.ok) {
-      throw new Error(data?.error || `Request failed: ${response.status}`);
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(data?.error || `Request failed: ${response.status}`);
+      }
+      return data as T;
+    } finally {
+      window.clearTimeout(timer);
     }
-    return data as T;
-  } finally {
-    window.clearTimeout(timer);
+  };
+
+  try {
+    return await executeOnce();
+  } catch (error: any) {
+    if (error?.name === 'AbortError') {
+      try {
+        return await executeOnce();
+      } catch (retryError: any) {
+        if (retryError?.name === 'AbortError') {
+          throw new Error(`Request timed out after ${timeoutMs}ms (retried once)`);
+        }
+        throw retryError;
+      }
+    }
+    throw error;
   }
 };
 
@@ -321,6 +340,11 @@ export default function TestLabPage() {
         model: config.model,
         currentSanity: sanity,
         inventory,
+        gameConfig: {
+          ...DEFAULT_GAME_CONFIG,
+          maxTurns: config.maxTurns,
+        },
+        labMode: true,
         isOvertime,
       }, config.timeoutMs);
       const latencyMs = Math.round(performance.now() - start);
