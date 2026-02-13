@@ -1,7 +1,7 @@
 import { GoogleGenAI, Type } from '@google/genai';
 import { buildSystemInstruction } from '../../constants';
 import { DEFAULT_GAME_CONFIG, type GameConfig } from '../../gameConfig';
-import type { Evidence, GeminiResponse } from '../../types';
+import type { Evidence, GeminiResponse, StoryEvaluation } from '../../types';
 
 const responseSchema = {
   type: Type.OBJECT,
@@ -48,10 +48,41 @@ const responseSchema = {
 
 const normalizeOpenAIBaseUrl = (url: string): string => {
   let clean = url.replace(/\/+$/, '');
-  if (!clean.endsWith('/v1')) {
+  // If user pasted a full endpoint URL, strip /chat/completions
+  if (clean.endsWith('/chat/completions')) {
+    return clean.slice(0, -'/chat/completions'.length);
+  }
+  // Only append /v1 if no version path (/v1, /v2, /v3, etc.) is already present
+  if (!/\/v\d+$/.test(clean)) {
     clean += '/v1';
   }
   return clean;
+};
+
+const storyEvalSchema = {
+  type: Type.OBJECT,
+  properties: {
+    coherence: { type: Type.NUMBER },
+    ruleIntegration: { type: Type.NUMBER },
+    horrorTension: { type: Type.NUMBER },
+    choiceMeaningfulness: { type: Type.NUMBER },
+    endingQuality: { type: Type.NUMBER },
+    overall: { type: Type.NUMBER },
+    issues: { type: Type.ARRAY, items: { type: Type.STRING } },
+    suggestions: { type: Type.ARRAY, items: { type: Type.STRING } },
+    summary: { type: Type.STRING },
+  },
+  required: [
+    'coherence',
+    'ruleIntegration',
+    'horrorTension',
+    'choiceMeaningfulness',
+    'endingQuality',
+    'overall',
+    'issues',
+    'suggestions',
+    'summary',
+  ],
 };
 
 type GenerateTurnInput = {
@@ -65,6 +96,7 @@ type GenerateTurnInput = {
   currentSanity?: number;
   inventory?: Evidence[];
   gameConfig?: GameConfig;
+  isOvertime?: boolean;
 };
 
 export const generateNextTurnServer = async ({
@@ -78,6 +110,7 @@ export const generateNextTurnServer = async ({
   currentSanity = 100,
   inventory = [],
   gameConfig = DEFAULT_GAME_CONFIG,
+  isOvertime = false,
 }: GenerateTurnInput): Promise<GeminiResponse> => {
   const effectiveApiKey = apiKey || process.env.API_KEY;
   if (!effectiveApiKey) {
@@ -109,6 +142,17 @@ Previous History:
 ${history.join('\n')}
 
 Player Action: ${currentAction}
+${isOvertime ? `
+⚠️ OVERTIME TURN — MANDATORY ENDING:
+You have exceeded the target turn count. You MUST set is_game_over=true THIS TURN.
+Choose the most appropriate ending based on the player's NARRATIVE STATE (Items/Exit):
+- Has ≥2 Plot Items + Action → True Ending (Victory). Sanity level determines if it's Heroic or Tragic.
+- Has Exit + Action → Escape Ending (Victory). Sanity level determines if it's Clean or Traumatized.
+- No Items / trapped → Fall Ending (Failure).
+Write a conclusive ending narrative. Do NOT continue the story.` : turnNumber >= gameConfig.maxTurns - 1 ? `
+⚠️ APPROACHING FINAL TURN:
+You are at or near the target turn count. You should set is_game_over=true this turn or next.
+Begin wrapping up the narrative. REMEMBER: Focus on resolving the PLOT (items/exit). Sanity adds flavor but is not the sole win condition.` : ''}
 `;
 
   const isAiStudio = !!process.env.API_KEY;
@@ -173,6 +217,136 @@ Player Action: ${currentAction}
   }
 
   return JSON.parse(jsonText) as GeminiResponse;
+};
+
+type EvaluateStoryInput = {
+  provider?: 'gemini' | 'openai';
+  apiKey?: string;
+  baseUrl?: string;
+  model?: string;
+  session: {
+    ending: string;
+    turns: number;
+    finalSanity: number;
+    rulesCount: number;
+    inventoryCount: number;
+    timeline: Array<{
+      turn: number;
+      choiceText: string;
+      choiceType: string;
+      sanityAfter: number;
+      newRulesCount: number;
+      narrative: string;
+    }>;
+  };
+};
+
+export const evaluateStoryServer = async ({
+  provider = 'gemini',
+  apiKey,
+  baseUrl,
+  model,
+  session,
+}: EvaluateStoryInput): Promise<StoryEvaluation> => {
+  const effectiveApiKey = apiKey || process.env.API_KEY;
+  if (!effectiveApiKey) {
+    throw new Error('API Key not found');
+  }
+
+  const systemPrompt = `
+You are a narrative QA evaluator for a Chinese rules-horror text game.
+Score strictly from 0-100 with integer values only.
+Return JSON only.
+
+Evaluation focus:
+1) coherence: overall logical consistency and scene flow.
+2) ruleIntegration: how deeply known rules affect choices and consequences.
+3) horrorTension: sustained dread and psychological pressure.
+4) choiceMeaningfulness: whether choices are distinct and strategically meaningful.
+5) endingQuality: ending payoff quality given session trajectory.
+6) overall: weighted total quality score.
+
+issues/suggestions:
+- Provide 3-6 concise Chinese bullet-like strings each.
+- Actionable and specific.
+summary:
+- 1-2 concise Chinese sentences.
+`;
+
+  const userPrompt = `
+Session metrics:
+- ending: ${session.ending}
+- turns: ${session.turns}
+- finalSanity: ${session.finalSanity}
+- rulesCount: ${session.rulesCount}
+- inventoryCount: ${session.inventoryCount}
+
+Timeline JSON:
+${JSON.stringify(session.timeline)}
+`;
+
+  const isAiStudio = !!process.env.API_KEY;
+  const effectiveProvider = isAiStudio ? 'gemini' : provider;
+
+  if (effectiveProvider === 'gemini') {
+    const options: any = { apiKey: effectiveApiKey };
+    if (baseUrl) {
+      options.httpOptions = { baseUrl: baseUrl.replace(/\/+$/, '') };
+    }
+
+    const ai = new GoogleGenAI(options);
+    const response = await ai.models.generateContent({
+      model: 'gemini-3-flash-preview',
+      contents: [{ role: 'user', parts: [{ text: userPrompt }] }],
+      config: {
+        systemInstruction: systemPrompt,
+        responseMimeType: 'application/json',
+        responseSchema: storyEvalSchema,
+        temperature: 0.2,
+      },
+    });
+
+    const jsonText = response.text;
+    if (!jsonText) {
+      throw new Error('Empty evaluation response from Gemini');
+    }
+    return JSON.parse(jsonText) as StoryEvaluation;
+  }
+
+  if (!baseUrl) {
+    throw new Error('Base URL required for OpenAI provider');
+  }
+
+  const cleanUrl = normalizeOpenAIBaseUrl(baseUrl);
+  const response = await fetch(`${cleanUrl}/chat/completions`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${effectiveApiKey}`,
+    },
+    body: JSON.stringify({
+      model: model || 'gpt-4o-mini',
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: `${userPrompt}\n\nReturn valid JSON only.` },
+      ],
+      response_format: { type: 'json_object' },
+      temperature: 0.2,
+    }),
+  });
+
+  if (!response.ok) {
+    const errText = await response.text();
+    throw new Error(`OpenAI eval API Error: ${response.status} - ${errText}`);
+  }
+
+  const data = await response.json();
+  const jsonText = data?.choices?.[0]?.message?.content;
+  if (!jsonText) {
+    throw new Error('Empty evaluation response from OpenAI provider');
+  }
+
+  return JSON.parse(jsonText) as StoryEvaluation;
 };
 
 export const fetchOpenAIModelsServer = async (baseUrl: string, apiKey: string): Promise<string[]> => {

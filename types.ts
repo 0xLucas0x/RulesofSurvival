@@ -39,6 +39,18 @@ export interface GeminiResponse {
   consumed_item_id?: string;
 }
 
+export interface StoryEvaluation {
+  coherence: number;
+  ruleIntegration: number;
+  horrorTension: number;
+  choiceMeaningfulness: number;
+  endingQuality: number;
+  overall: number;
+  issues: string[];
+  suggestions: string[];
+  summary: string;
+}
+
 export enum GameStatus {
   START = 'START',
   PLAYING = 'PLAYING',

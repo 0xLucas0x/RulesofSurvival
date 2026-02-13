@@ -1,5 +1,5 @@
 import { DEFAULT_GAME_CONFIG, type GameConfig } from '../gameConfig';
-import type { Evidence, GeminiResponse } from '../types';
+import type { Evidence, GeminiResponse, StoryEvaluation } from '../types';
 
 const postJson = async <T>(url: string, payload: Record<string, unknown>): Promise<T> => {
   const response = await fetch(url, {
@@ -92,4 +92,28 @@ export const generateSceneImage = async (
     ...options,
   });
   return data.imageUrl;
+};
+
+export const evaluateStory = async (payload: {
+  provider?: 'gemini' | 'openai';
+  apiKey?: string;
+  baseUrl?: string;
+  model?: string;
+  session: {
+    ending: string;
+    turns: number;
+    finalSanity: number;
+    rulesCount: number;
+    inventoryCount: number;
+    timeline: Array<{
+      turn: number;
+      choiceText: string;
+      choiceType: string;
+      sanityAfter: number;
+      newRulesCount: number;
+      narrative: string;
+    }>;
+  };
+}): Promise<StoryEvaluation> => {
+  return postJson<StoryEvaluation>('/api/v1/eval/story', payload);
 };

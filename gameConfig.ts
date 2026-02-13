@@ -12,10 +12,10 @@ export interface GameConfig {
 }
 
 export const DEFAULT_GAME_CONFIG: GameConfig = {
-    maxTurns: 15,
-    sanityPenaltyLight: -5,
-    sanityPenaltyRule: -20,
-    sanityPenaltyFatal: -60,
+    maxTurns: 12,
+    sanityPenaltyLight: -8,
+    sanityPenaltyRule: -25,
+    sanityPenaltyFatal: -80,
     safeChoiceMaxRatio: 0.5,
 };
 

@@ -188,15 +188,23 @@ The sanity_change value you return MUST follow these ranges based on the player'
 
 | Action Category | sanity_change Range | Example |
 |---|---|---|
-| Safe action / following a known rule | +2 to +5 | 安全移动、遵守规则 |
+| Safe action / following a known rule | 0 to +2 | 安全移动、遵守规则 |
+| Neutral / mild exploration | -2 to 0 | 走进新区域、与NPC对话 |
 | Light risk / minor mistake | ${config.sanityPenaltyLight} to ${Math.floor(config.sanityPenaltyLight / 2)} | 走进未知房间、忽略小细节 |
 | Violating a known rule | ${config.sanityPenaltyRule} to ${Math.floor(config.sanityPenaltyRule / 2)} | 已知规则说"不要回头"但玩家回头了 |
 | Severe / core rule violation | ${config.sanityPenaltyFatal} to ${Math.floor(config.sanityPenaltyFatal / 2)} | 严重触犯核心禁忌 |
 
+**NET-NEGATIVE SANITY RULE (CRITICAL):**
+- The **average** sanity_change across all turns should be approximately **-4 to -6 per turn**.
+- This means: even "safe" turns should rarely give more than +1. Most turns should result in net sanity loss.
+- If you find yourself giving +3 or more consecutively, you are being too generous. Increase environmental pressure.
+- The hospital is hostile. Even walking down a corridor should feel draining. Sanity recovery should be RARE and minor.
+
 **PACING SANITY CONSTRAINT (CRITICAL):**
-- By turn 5, player sanity should remain **above 70**.
-- By turn 10, player sanity should remain **above 40**.
-- If sanity is dropping faster than this pace, use narrative compensation (e.g., a safe rest scene, finding a recovery item, a moment of clarity) to bring the pace back on track.
+- By turn 5, player sanity should be around **65-80** (NOT still at 90+).
+- By turn 10, player sanity should be around **30-50**.
+- If sanity is ABOVE these ranges, you are being too lenient. Increase penalties immediately.
+- If sanity is dropping faster than this pace, use narrative compensation to bring it back on track.
 - Do NOT kill the player before turn 8 unless they explicitly and knowingly violate a core rule.
 
 **INSTANT DEATH RULES:**
@@ -241,15 +249,25 @@ Rules for items:
 
 **PACING & ENDING SYSTEM:**
 
-Target game length: ${config.maxTurns} turns (±2 turns).
+Target game length: ${config.maxTurns} turns (±2 turns). This is a SOFT TARGET, not a hard limit.
 
 Pacing guide:
-- **Turns 1-3 (Early):** Establish atmosphere, introduce 1-2 rules, scatter investigation opportunities. Sanity loss should be mild. Trigger Anchor A1.
-- **Turns 4-5 (Early-Mid):** Trigger Anchor A2. Old Patient contact. Begin testing known rules.
+- **Turns 1-3 (Early):** Establish atmosphere, introduce 1-2 rules, scatter investigation opportunities. Sanity loss should be mild (-2 to -4 per turn). Trigger Anchor A1.
+- **Turns 4-5 (Early-Mid):** Trigger Anchor A2. Old Patient contact. Begin testing known rules. Sanity decline accelerates.
 - **Turns 6-8 (Mid):** Trigger Anchor A3. Escalate tension, introduce rule-violation temptations. Items can be found through risky exploration.
-- **Turns 9-11 (Mid-Late):** Trigger Anchor A4. Major truth revelation. Stakes are high. Every choice has significant weight.
-- **Turns 12-${config.maxTurns} (Late):** Trigger Anchor A5. Push toward climax. If the player has collected key items, offer the True Ending path. If sanity is low, the environment should feel hostile and closing in.
-- **Beyond turn ${config.maxTurns + 2}:** Force an ending within 1-2 turns.
+- **Turns 9-11 (Mid-Late):** Trigger Anchor A4. Major truth revelation. Stakes are high. Every choice has significant weight. Sanity should be in the 30-50 range.
+- **Turns 12-${config.maxTurns} (Late):** Trigger Anchor A5. Push toward climax. You MUST begin steering toward an ending.
+- **Turn ${config.maxTurns - 1} to ${config.maxTurns}:** You MUST set is_game_over=true. Pick the most appropriate ending based on the player's current state (sanity, items, location). Do NOT leave the story hanging.
+- **Beyond turn ${config.maxTurns}:** FORCE an ending THIS TURN. Set is_game_over=true unconditionally.
+
+- If the current turn number >= ${config.maxTurns - 1}, you MUST end the game this turn or the next.
+- Choose the ending based on the player's NARRATIVE ACHIEVEMENTS (Items/Location/Choice):
+  - **TRUE ENDING (Victory)**: Has ≥2 plot items AND performs the correct ritual/action.
+    - *Flavor*: If Sanity > 40, it's a Heroic Sacrifice/Triumph. If Sanity <= 40, it's a Tragic/Pyrrhic Victory (saved the world but lost themself).
+  - **ESCAPE ENDING (Victory)**: Has found an exit route AND chooses to leave.
+    - *Flavor*: If Sanity > 40, they escape clean. If Sanity <= 40, they escape "Traumatized" (haunted by the horror).
+  - **FALL ENDING (Failure)**: Sanity <= 0 OR No plot items found by max turn OR Wrong final choice.
+- **CRITICAL**: Do NOT fail the player just because Sanity is low, AS LONG AS they have the required items and make the right choice. "Surviving by a thread" is a valid horror victory.
 
 **VICTORY & ENDING CONDITIONS:**
 1. **FALL ENDING (堕入结局):** Sanity <= 0 OR instant death from rule violation. is_game_over=true, is_victory=false.
