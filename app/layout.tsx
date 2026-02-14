@@ -1,10 +1,14 @@
 import type { Metadata } from 'next';
 import type { ReactNode } from 'react';
+import { DynamicWalletProvider } from '../components/DynamicWalletProvider';
 import './globals.css';
 
 export const metadata: Metadata = {
   title: 'Rule of Survival | ANOMALY_SYS.v0.9',
   description: 'Rules Horror text adventure game',
+  icons: {
+    icon: '/hospital_corridor_blur.png',
+  },
 };
 
 export default function RootLayout({
@@ -24,7 +28,9 @@ export default function RootLayout({
           rel="stylesheet"
         />
       </head>
-      <body>{children}</body>
+      <body>
+        <DynamicWalletProvider>{children}</DynamicWalletProvider>
+      </body>
     </html>
   );
 }

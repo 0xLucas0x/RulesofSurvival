@@ -1,6 +1,5 @@
 import i18n from 'i18next';
 import { initReactI18next } from 'react-i18next';
-import LanguageDetector from 'i18next-browser-languagedetector';
 
 export const resources = {
     en: {
@@ -123,6 +122,23 @@ export const resources = {
                 survival_record: "Survival Record",
                 return: "Return to Ward",
                 status_line: "Status: Exploring // Evidence: {{count}}/12 Found"
+            },
+            auth: {
+                connect_hint: "Connect your wallet to start Human mode.",
+                checking_session: "Checking Session...",
+                verifying_wallet: "Verifying Wallet...",
+                loading_provider: "Loading Wallet Provider...",
+                connect_wallet: "Connect Wallet",
+                back: "Back",
+                session_lost: "Session lost. Return to landing.",
+                admin_only: "Agent mode is admin-only.",
+                errors: {
+                    no_wallet_address: "Connected wallet has no address.",
+                    signature_cancelled: "Wallet signature was cancelled.",
+                    login_failed: "Wallet login failed.",
+                    dynamic_not_configured: "Dynamic environment is not configured.",
+                    provider_loading: "Wallet provider is still loading. Please retry."
+                }
             }
         }
     },
@@ -246,17 +262,35 @@ export const resources = {
                 survival_record: "生存记录",
                 return: "返回病房",
                 status_line: "生存状态: 探索中 // 关键线索: {{count}}/12 已发现"
+            },
+            auth: {
+                connect_hint: "连接钱包后即可进入人类模式。",
+                checking_session: "正在检查会话...",
+                verifying_wallet: "正在验证钱包签名...",
+                loading_provider: "钱包连接器加载中...",
+                connect_wallet: "连接钱包",
+                back: "返回",
+                session_lost: "会话已失效，请返回落地页。",
+                admin_only: "Agent 模式仅管理员可用。",
+                errors: {
+                    no_wallet_address: "已连接钱包缺少地址信息。",
+                    signature_cancelled: "你已取消钱包签名。",
+                    login_failed: "钱包登录失败。",
+                    dynamic_not_configured: "尚未配置 Dynamic 环境。",
+                    provider_loading: "钱包连接器仍在加载，请稍后重试。"
+                }
             }
         }
     }
 };
 
 i18n
-    .use(LanguageDetector)
     .use(initReactI18next)
     .init({
         resources,
+        lng: 'zh',
         fallbackLng: 'zh',
+        supportedLngs: ['zh', 'en'],
         debug: false,
         interpolation: {
             escapeValue: false, // not needed for react as it escapes by default

@@ -1,5 +1,56 @@
 import { DEFAULT_GAME_CONFIG, type GameConfig } from '../gameConfig';
-import type { Evidence, GeminiResponse, StoryEvaluation } from '../types';
+import type {
+  AuthUser,
+  Choice,
+  Evidence,
+  GameState,
+  GeminiResponse,
+  LandingStats,
+  LeaderboardEntry,
+  RunSummary,
+  StoryEvaluation,
+} from '../types';
+
+const normalizeAuthUser = (input: any): AuthUser => {
+  return {
+    id: String(input?.id || ''),
+    walletAddress: String(input?.walletAddress || ''),
+    role: input?.role === 'admin' ? 'admin' : 'player',
+    tokenExp: typeof input?.tokenExp === 'number' ? input.tokenExp : Math.floor(Date.now() / 1000),
+    isFirstHumanEntry: Boolean(input?.isFirstHumanEntry),
+  };
+};
+
+const readJsonOrText = async (
+  response: Response,
+): Promise<{ json: Record<string, unknown> | null; rawText: string }> => {
+  const rawText = await response.text();
+  if (!rawText) {
+    return { json: null, rawText };
+  }
+  try {
+    return { json: JSON.parse(rawText) as Record<string, unknown>, rawText };
+  } catch {
+    return { json: null, rawText };
+  }
+};
+
+const extractErrorMessage = (status: number, json: Record<string, unknown> | null, rawText: string): string => {
+  const fromJson = typeof json?.error === 'string' ? json.error : null;
+  if (fromJson) {
+    return fromJson;
+  }
+
+  if (rawText.trim().startsWith('<!DOCTYPE') || rawText.trim().startsWith('<html')) {
+    return `Server returned HTML instead of JSON (HTTP ${status}). Check Next.js server logs for the real error.`;
+  }
+
+  if (rawText.trim()) {
+    return rawText.trim().slice(0, 300);
+  }
+
+  return `Request failed: ${status}`;
+};
 
 const postJson = async <T>(url: string, payload: Record<string, unknown>): Promise<T> => {
   const response = await fetch(url, {
@@ -10,12 +61,47 @@ const postJson = async <T>(url: string, payload: Record<string, unknown>): Promi
     body: JSON.stringify(payload),
   });
 
-  const data = await response.json();
+  const { json, rawText } = await readJsonOrText(response);
   if (!response.ok) {
-    throw new Error(data?.error || `Request failed: ${response.status}`);
+    throw new Error(extractErrorMessage(response.status, json, rawText));
+  }
+  if (!json) {
+    throw new Error(`Invalid JSON response from ${url} (HTTP ${response.status})`);
   }
 
-  return data as T;
+  return json as T;
+};
+
+const putJson = async <T>(url: string, payload: Record<string, unknown>): Promise<T> => {
+  const response = await fetch(url, {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(payload),
+  });
+
+  const { json, rawText } = await readJsonOrText(response);
+  if (!response.ok) {
+    throw new Error(extractErrorMessage(response.status, json, rawText));
+  }
+  if (!json) {
+    throw new Error(`Invalid JSON response from ${url} (HTTP ${response.status})`);
+  }
+
+  return json as T;
+};
+
+const getJson = async <T>(url: string): Promise<T> => {
+  const response = await fetch(url);
+  const { json, rawText } = await readJsonOrText(response);
+  if (!response.ok) {
+    throw new Error(extractErrorMessage(response.status, json, rawText));
+  }
+  if (!json) {
+    throw new Error(`Invalid JSON response from ${url} (HTTP ${response.status})`);
+  }
+  return json as T;
 };
 
 export const generateNextTurn = async (
@@ -116,4 +202,131 @@ export const evaluateStory = async (payload: {
   };
 }): Promise<StoryEvaluation> => {
   return postJson<StoryEvaluation>('/api/v1/eval/story', payload);
+};
+
+export const fetchAuthUser = async (): Promise<AuthUser | null> => {
+  try {
+    const data = await getJson<{ user: AuthUser | null }>('/api/v1/auth/me');
+    if (!data.user) return null;
+    return normalizeAuthUser(data.user);
+  } catch {
+    return null;
+  }
+};
+
+export const fetchSiweNonce = async (): Promise<{ nonce: string; chainId: number }> => {
+  return getJson<{ nonce: string; chainId: number }>('/api/v1/auth/nonce');
+};
+
+export const verifySiweLogin = async (message: string, signature: string): Promise<AuthUser> => {
+  const data = await postJson<{ user: AuthUser }>('/api/v1/auth/verify', { message, signature });
+  return normalizeAuthUser(data.user);
+};
+
+export const logoutAuth = async (): Promise<void> => {
+  await postJson('/api/v1/auth/logout', {});
+};
+
+export const startRun = async (): Promise<{
+  summary: RunSummary;
+  state: GameState;
+  recovered: boolean;
+}> => {
+  return postJson('/api/v1/runs/start', {});
+};
+
+export const getCurrentRun = async (): Promise<{
+  run: {
+    summary: RunSummary;
+    state: GameState;
+  } | null;
+}> => {
+  return getJson('/api/v1/runs/current');
+};
+
+export const getRunDetail = async (runId: string): Promise<{
+  summary: RunSummary;
+  state: GameState;
+}> => {
+  return getJson(`/api/v1/runs/${runId}`);
+};
+
+export const submitRunTurn = async (runId: string, choice: Choice): Promise<{
+  state: GameState;
+  imageUnlocked: boolean;
+}> => {
+  return postJson(`/api/v1/runs/${runId}/turn`, { choice });
+};
+
+export const fetchLandingStats = async (): Promise<LandingStats> => {
+  return getJson('/api/v1/stats/landing');
+};
+
+export const fetchLeaderboard = async (
+  board: 'composite' | 'clear' | 'active',
+  window: '7d' | 'all',
+): Promise<LeaderboardEntry[]> => {
+  const data = await getJson<{ items: LeaderboardEntry[] }>(`/api/v1/leaderboard?board=${board}&window=${window}`);
+  return data.items || [];
+};
+
+export const fetchAdminConfig = async (): Promise<Record<string, unknown>> => {
+  return getJson('/api/v1/admin/config');
+};
+
+export const updateAdminConfig = async (payload: Record<string, unknown>): Promise<Record<string, unknown>> => {
+  return putJson('/api/v1/admin/config', payload);
+};
+
+export const fetchUnlockPolicy = async (): Promise<Record<string, unknown>> => {
+  return getJson('/api/v1/admin/unlock-policy');
+};
+
+export const updateUnlockPolicy = async (payload: Record<string, unknown>): Promise<Record<string, unknown>> => {
+  return putJson('/api/v1/admin/unlock-policy', payload);
+};
+
+export const addUnlockWhitelist = async (walletAddress: string, note?: string): Promise<Record<string, unknown>> => {
+  return postJson('/api/v1/admin/unlock-whitelist', { walletAddress, note });
+};
+
+export const removeUnlockWhitelist = async (walletAddress: string): Promise<Record<string, unknown>> => {
+  const response = await fetch(`/api/v1/admin/unlock-whitelist?walletAddress=${encodeURIComponent(walletAddress)}`, {
+    method: 'DELETE',
+  });
+  const data = await response.json();
+  if (!response.ok) {
+    throw new Error(data?.error || `Request failed: ${response.status}`);
+  }
+  return data;
+};
+
+export const addNftRequirementAdmin = async (payload: Record<string, unknown>): Promise<Record<string, unknown>> => {
+  return postJson('/api/v1/admin/nft-requirements', payload);
+};
+
+export const removeNftRequirementAdmin = async (id: string): Promise<Record<string, unknown>> => {
+  const response = await fetch(`/api/v1/admin/nft-requirements?id=${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+  });
+  const data = await response.json();
+  if (!response.ok) {
+    throw new Error(data?.error || `Request failed: ${response.status}`);
+  }
+  return data;
+};
+
+export const addTokenRequirementAdmin = async (payload: Record<string, unknown>): Promise<Record<string, unknown>> => {
+  return postJson('/api/v1/admin/token-requirements', payload);
+};
+
+export const removeTokenRequirementAdmin = async (id: string): Promise<Record<string, unknown>> => {
+  const response = await fetch(`/api/v1/admin/token-requirements?id=${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+  });
+  const data = await response.json();
+  if (!response.ok) {
+    throw new Error(data?.error || `Request failed: ${response.status}`);
+  }
+  return data;
 };

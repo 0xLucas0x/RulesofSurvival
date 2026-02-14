@@ -1,0 +1,248 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  PLAYER
+  ADMIN
+}
+
+enum UserStatus {
+  ACTIVE
+  BANNED
+}
+
+enum GameRunStatus {
+  ACTIVE
+  COMPLETED
+  ABANDONED
+  FAILED
+}
+
+enum NftTokenStandard {
+  ERC721
+  ERC1155
+}
+
+enum LlmProvider {
+  GEMINI
+  OPENAI
+}
+
+enum ImageProvider {
+  POLLINATIONS
+  OPENAI
+}
+
+enum UnlockLogic {
+  ANY
+}
+
+model User {
+  id             String               @id @default(uuid()) @db.Uuid
+  walletAddress  String               @unique @map("wallet_address")
+  role           UserRole             @default(PLAYER)
+  status         UserStatus           @default(ACTIVE)
+  createdAt      DateTime             @default(now()) @map("created_at")
+  lastLoginAt    DateTime?            @map("last_login_at")
+  nonces         SiweNonce[]
+  revocations    JwtRevocation[]
+  runs           GameRun[]
+  runResults     RunResult[]
+  metricsAllTime UserMetricsAllTime?
+  metrics7d      UserMetrics7d?
+
+  @@map("users")
+}
+
+model SiweNonce {
+  id          String    @id @default(uuid()) @db.Uuid
+  nonce       String    @unique
+  walletAddr  String?   @map("wallet_address")
+  userId      String?   @db.Uuid @map("user_id")
+  expiresAt   DateTime  @map("expires_at")
+  usedAt      DateTime? @map("used_at")
+  createdIp   String?   @map("created_ip")
+  userAgent   String?   @map("user_agent")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  user        User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@map("siwe_nonces")
+}
+
+model JwtRevocation {
+  id        String   @id @default(uuid()) @db.Uuid
+  jti       String   @unique
+  userId    String   @db.Uuid @map("user_id")
+  revokedAt DateTime @default(now()) @map("revoked_at")
+  expiresAt DateTime @map("expires_at")
+  reason    String?
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("jwt_revocations")
+}
+
+model RuntimeConfig {
+  id            String       @id @default("default")
+  llmProvider   LlmProvider  @default(GEMINI) @map("llm_provider")
+  llmBaseUrl    String?      @map("llm_base_url")
+  llmApiKeyEnc  String?      @map("llm_api_key_enc")
+  llmModel      String?      @map("llm_model")
+  imageProvider ImageProvider @default(POLLINATIONS) @map("image_provider")
+  imageBaseUrl  String?      @map("image_base_url")
+  imageApiKeyEnc String?     @map("image_api_key_enc")
+  imageModel    String?      @map("image_model")
+  gameConfigJson Json        @map("game_config_json")
+  updatedAt     DateTime     @updatedAt @map("updated_at")
+  updatedBy     String?      @db.Uuid @map("updated_by")
+
+  @@map("runtime_config")
+}
+
+model ImageUnlockPolicy {
+  id         String     @id @default("default")
+  enabled    Boolean    @default(false)
+  logic      UnlockLogic @default(ANY)
+  chainId    Int        @default(10143) @map("chain_id")
+  updatedAt  DateTime   @updatedAt @map("updated_at")
+  updatedBy  String?    @db.Uuid @map("updated_by")
+
+  @@map("image_unlock_policy")
+}
+
+model ImageUnlockWhitelist {
+  id            String   @id @default(uuid()) @db.Uuid
+  walletAddress String   @unique @map("wallet_address")
+  enabled       Boolean  @default(true)
+  note          String?
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  @@map("image_unlock_whitelist")
+}
+
+model NftRequirement {
+  id              String           @id @default(uuid()) @db.Uuid
+  chainId         Int              @default(10143) @map("chain_id")
+  contractAddress String           @map("contract_address")
+  tokenStandard   NftTokenStandard @map("token_standard")
+  tokenId         String?          @map("token_id")
+  minBalance      String           @default("1") @map("min_balance")
+  enabled         Boolean          @default(true)
+  createdAt       DateTime         @default(now()) @map("created_at")
+
+  @@index([enabled])
+  @@index([chainId, contractAddress])
+  @@map("nft_requirements")
+}
+
+model TokenRequirement {
+  id              String   @id @default(uuid()) @db.Uuid
+  chainId         Int      @default(10143) @map("chain_id")
+  contractAddress String   @map("contract_address")
+  minBalanceRaw   String   @map("min_balance_raw")
+  decimals        Int      @default(18)
+  enabled         Boolean  @default(true)
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  @@index([enabled])
+  @@index([chainId, contractAddress])
+  @@map("token_requirements")
+}
+
+model GameRun {
+  id                 String        @id @default(uuid()) @db.Uuid
+  userId             String        @db.Uuid @map("user_id")
+  status             GameRunStatus @default(ACTIVE)
+  startedAt          DateTime      @default(now()) @map("started_at")
+  endedAt            DateTime?     @map("ended_at")
+  currentTurnNo      Int           @default(0) @map("current_turn_no")
+  finalScore         Int?          @map("final_score")
+  finalSanity        Int?          @map("final_sanity")
+  isVictory          Boolean?      @map("is_victory")
+  configSnapshotJson Json          @map("config_snapshot_json")
+  lastTurnId         String?       @db.Uuid @map("last_turn_id")
+  activeKey          String?       @unique @map("active_key")
+  createdAt          DateTime      @default(now()) @map("created_at")
+  updatedAt          DateTime      @updatedAt @map("updated_at")
+  user               User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  turns              GameTurn[]
+  result             RunResult?
+
+  @@index([userId, status])
+  @@index([startedAt])
+  @@map("game_runs")
+}
+
+model GameTurn {
+  id              String   @id @default(uuid()) @db.Uuid
+  runId           String   @db.Uuid @map("run_id")
+  turnNo          Int      @map("turn_no")
+  inputJson       Json     @map("input_json")
+  outputJson      Json     @map("output_json")
+  stateBeforeJson Json     @map("state_before_json")
+  stateAfterJson  Json     @map("state_after_json")
+  latencyMs       Int      @default(0) @map("latency_ms")
+  createdAt       DateTime @default(now()) @map("created_at")
+  run             GameRun  @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  @@unique([runId, turnNo])
+  @@index([runId, createdAt])
+  @@map("game_turns")
+}
+
+model RunResult {
+  runId        String   @id @db.Uuid @map("run_id")
+  userId       String   @db.Uuid @map("user_id")
+  score        Int
+  isVictory    Boolean  @map("is_victory")
+  turns        Int
+  finalSanity  Int      @map("final_sanity")
+  completedAt  DateTime @default(now()) @map("completed_at")
+  run          GameRun  @relation(fields: [runId], references: [id], onDelete: Cascade)
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, completedAt])
+  @@map("run_results")
+}
+
+model UserMetricsAllTime {
+  userId        String   @id @db.Uuid @map("user_id")
+  compositeScore Int     @default(0) @map("composite_score")
+  victories     Int      @default(0)
+  completedRuns Int      @default(0) @map("completed_runs")
+  activeDays    Int      @default(0) @map("active_days")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("user_metrics_all_time")
+}
+
+model UserMetrics7d {
+  userId        String   @id @db.Uuid @map("user_id")
+  compositeScore Int     @default(0) @map("composite_score")
+  victories     Int      @default(0)
+  completedRuns Int      @default(0) @map("completed_runs")
+  activeDays    Int      @default(0) @map("active_days")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("user_metrics_7d")
+}
+
+model LandingDailyStat {
+  date         DateTime @id @db.Date
+  dau          Int      @default(0)
+  runsStarted  Int      @default(0) @map("runs_started")
+  runsCompleted Int     @default(0) @map("runs_completed")
+  victoryRate  Float    @default(0) @map("victory_rate")
+  avgScore     Float    @default(0) @map("avg_score")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  @@map("landing_daily_stats")
+}

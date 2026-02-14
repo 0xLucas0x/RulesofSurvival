@@ -2,122 +2,103 @@
 
 Rules-horror text adventure game built with Next.js + React + TypeScript.
 
+## What changed (Web3 + persistence)
+
+This version includes:
+
+- SIWE wallet auth (`/api/v1/auth/*`) with JWT HttpOnly cookie sessions.
+- Prisma + Neon(PostgreSQL) persistence for users, runs, turns, config, and stats.
+- Recoverable runs (`/api/v1/runs/*`) with one active run per wallet.
+- Landing statistics + leaderboard APIs.
+- Admin console (`/admin`) for runtime LLM/image config and image unlock rules.
+- Image unlock gating by wallet whitelist/NFT/token on Monad Testnet.
+
 ## Run locally
 
 1. Install dependencies
 
 ```bash
-npm install
+pnpm install
 ```
 
-2. Start dev server
+2. Configure environment
 
 ```bash
-npm run dev
+cp .env.example .env.local
+# then edit .env.local
 ```
 
-3. Build + start production
+Required variables are documented in `.env`, including `NEXT_PUBLIC_DYNAMIC_ENV_ID` for Dynamic wallet connect.
+
+3. Generate Prisma client and apply migrations
 
 ```bash
-npm run build
-npm run start
+pnpm prisma:generate
+pnpm prisma:deploy
 ```
 
-## Architecture
-
-- UI and game state run in the browser.
-- All LLM and image generation calls are proxied through Next.js API routes.
-- Versioned API namespace: `/api/v1/*`.
-
-## API v1
-
-### Health
-
-`GET /api/v1/health`
-
-### Core turn engine
-
-`POST /api/v1/game/turn`
-
-Example:
+4. Start dev server
 
 ```bash
-curl -X POST http://localhost:3000/api/v1/game/turn \
-  -H "Content-Type: application/json" \
-  -d '{
-    "history": [],
-    "currentAction": "查看四周",
-    "currentRules": ["不要直视东楼的护士。"],
-    "provider": "gemini",
-    "apiKey": "YOUR_KEY"
-  }'
+pnpm dev
 ```
 
-### LLM utilities
-
-- `POST /api/v1/llm/test`
-- `POST /api/v1/llm/models`
-
-### Image utilities
-
-- `POST /api/v1/image/generate`
-- `POST /api/v1/image/models`
-
-## Scripted gameplay testing (NVIDIA, no image rendering)
-
-Use the provided script to run multiple automated game sessions against `/api/v1/game/turn`.
-
-### 1) Start the app server
+5. Build production
 
 ```bash
-npm run dev
+pnpm build
+pnpm start
 ```
 
-### 2) Create `.env.gameplay`
+## Database
 
-```bash
-cp .env.gameplay.example .env.gameplay
-```
+- Schema: `prisma/schema.prisma`
+- Initial migration: `prisma/migrations/20260214_init/migration.sql`
 
-Then edit `.env.gameplay` with your real NVIDIA key.
+Core tables include:
 
-### 3) Run scripted tests
+- `users`, `siwe_nonces`, `jwt_revocations`
+- `runtime_config`, `image_unlock_policy`, `image_unlock_whitelist`
+- `nft_requirements`, `token_requirements`
+- `game_runs`, `game_turns`, `run_results`
+- `user_metrics_all_time`, `user_metrics_7d`, `landing_daily_stats`
 
-```bash
-npm run test:game:nvidia
-```
+## API overview
 
-Optional: use a custom env file path
+### Auth
 
-```bash
-GAME_TEST_ENV_FILE=.env.gameplay.staging npm run test:game:nvidia
-```
+- `GET /api/v1/auth/nonce`
+- `POST /api/v1/auth/verify`
+- `POST /api/v1/auth/logout`
+- `GET /api/v1/auth/me`
 
-Defaults used by the script:
+### Gameplay persistence
 
-- `GAME_API_BASE=http://localhost:3000`
-- `NVIDIA_BASE_URL=https://integrate.api.nvidia.com/v1/chat/completions`
-- `NVIDIA_MODEL=z-ai/glm4.7`
-- `TEST_GAMES=8`
-- `TEST_MAX_TURNS=16`
+- `POST /api/v1/runs/start`
+- `GET /api/v1/runs/current`
+- `GET /api/v1/runs/:runId`
+- `POST /api/v1/runs/:runId/turn`
+- `GET /api/v1/runs/:runId/turns`
 
-The script does not call image APIs, so it can focus purely on turn-engine behavior.
+### Landing / leaderboard
 
-## Visual Test Lab
+- `GET /api/v1/stats/landing`
+- `GET /api/v1/leaderboard?board=composite|clear|active&window=7d|all`
 
-Open `http://localhost:3000/lab` for a visual stress-testing console.
+### Admin (wallet role = admin)
 
-- Configure provider, base URL, key, model, game count, concurrency, and turn limit.
-- Run tests in parallel and monitor real-time progress.
-- Each turn persists player choice + model output + state transition.
-- Story quality is auto-evaluated per game via `POST /api/v1/eval/story` using the same model config.
+- `GET/PUT /api/v1/admin/config`
+- `GET/PUT /api/v1/admin/unlock-policy`
+- `POST/DELETE /api/v1/admin/unlock-whitelist`
+- `POST/DELETE /api/v1/admin/nft-requirements`
+- `POST/DELETE /api/v1/admin/token-requirements`
 
-Persistence behavior:
+## Access control notes
 
-- Run configuration is stored in `localStorage`.
-- Full run/game/turn logs are stored in `IndexedDB` for replay and analysis.
+- `/admin` and `/lab` are admin-only pages.
+- `/api/v1/game/turn` is now admin debug-only (for lab/debug workflows).
+- Player gameplay should use `/api/v1/runs/:runId/turn`.
 
-## Notes
+## Legacy test lab
 
-- This project intentionally keeps provider credentials user-configurable for testing.
-- Public API mode is currently open (no auth). Add rate limits before internet exposure.
+The visual lab still exists at `/lab` and is now restricted to admin sessions.
