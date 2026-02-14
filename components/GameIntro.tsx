@@ -12,42 +12,42 @@ interface IntroLine {
 }
 
 const INTRO_LINES: IntroLine[] = [
-    { text: 'SYSTEM_BOOT_SEQUENCE...', style: 'system', delay: 0 },
-    { text: 'LOADING_ARCHIVE_03.DAT', style: 'system', delay: 500 },
-    { text: 'SIGNAL_INTERFERENCE_DETECTED', style: 'danger', delay: 800, glitch: true },
-    { text: 'REROUTING_CONNECTION...', style: 'system', delay: 500 },
+    { text: 'intro.system_boot', style: 'system', delay: 0 },
+    { text: 'intro.loading', style: 'system', delay: 500 },
+    { text: 'intro.interference', style: 'danger', delay: 800, glitch: true },
+    { text: 'intro.rerouting', style: 'system', delay: 500 },
     { text: '', style: 'normal', delay: 600 },
-    { text: '你不记得自己是什么时候来到这里的。', style: 'normal', delay: 400 },
+    { text: 'intro.line1', style: 'normal', delay: 400 },
     { text: '', style: 'normal', delay: 300 },
-    { text: '昏暗的走廊。刺鼻的消毒水。', style: 'normal', delay: 300 },
-    { text: '头顶的日光灯发出令人牙酸的嗡嗡声。', style: 'normal', delay: 400, glitch: true },
+    { text: 'intro.line2', style: 'normal', delay: 300 },
+    { text: 'intro.line3', style: 'normal', delay: 400, glitch: true },
     { text: '', style: 'normal', delay: 400 },
-    { text: '你低头看了看自己——', style: 'normal', delay: 400 },
-    { text: '白色的病号服。手腕上是编号手环：', style: 'normal', delay: 300 },
-    { text: '3 号 患 者', style: 'title', delay: 800, glitch: true },
+    { text: 'intro.line4', style: 'normal', delay: 400 },
+    { text: 'intro.line5', style: 'normal', delay: 300 },
+    { text: 'intro.patient_id', style: 'title', delay: 800, glitch: true },
     { text: '', style: 'normal', delay: 600 },
-    { text: '你记不清任何事。但身体记得。', style: 'dim', delay: 400 },
-    { text: '你的手指在不自觉地颤抖。', style: 'dim', delay: 300 },
-    { text: '仿佛曾经目睹过什么——不应该被看到的东西。', style: 'danger', delay: 500 },
+    { text: 'intro.line6', style: 'dim', delay: 400 },
+    { text: 'intro.line7', style: 'dim', delay: 300 },
+    { text: 'intro.line8', style: 'danger', delay: 500 },
     { text: '', style: 'normal', delay: 500 },
-    { text: '走廊尽头的公告栏上，贴着一张泛黄的告示：', style: 'normal', delay: 400 },
+    { text: 'intro.line9', style: 'normal', delay: 400 },
     { text: '', style: 'normal', delay: 300 },
     { text: '┌──────────────────────────────┐', style: 'rule', delay: 400 },
-    { text: '│    崇 山 医 院 患 者 守 则      │', style: 'rule', delay: 300 },
+    { text: 'intro.rule_title', style: 'rule', delay: 300 },
     { text: '├──────────────────────────────┤', style: 'rule', delay: 150 },
-    { text: '│ 一、不要直视东楼的护士。        │', style: 'rule', delay: 400 },
-    { text: '│ 二、熄灯后，不论听到什么声音，   │', style: 'rule', delay: 300 },
-    { text: '│     绝对不要回头。              │', style: 'rule', delay: 150 },
-    { text: '│ 三、遵守规则，活着离开。        │', style: 'rule', delay: 400 },
+    { text: 'intro.rule1', style: 'rule', delay: 400 },
+    { text: 'intro.rule2', style: 'rule', delay: 300 },
+    { text: 'intro.rule3', style: 'rule', delay: 150 },
+    { text: 'intro.rule4', style: 'rule', delay: 400 },
     { text: '└──────────────────────────────┘', style: 'rule', delay: 300 },
     { text: '', style: 'normal', delay: 600 },
-    { text: '你手中攥着一张皱巴巴的挂号单。', style: 'normal', delay: 300 },
-    { text: '背面用颤抖的笔迹写着：', style: 'normal', delay: 300 },
+    { text: 'intro.line10', style: 'normal', delay: 300 },
+    { text: 'intro.line11', style: 'normal', delay: 300 },
     { text: '', style: 'normal', delay: 400 },
-    { text: '"别相信穿红衣服的人。"', style: 'clue', delay: 600, glitch: true },
+    { text: 'intro.clue', style: 'clue', delay: 600, glitch: true },
     { text: '', style: 'normal', delay: 1000 },
-    { text: '远处传来一声尖锐的金属碰撞声。', style: 'danger', delay: 400 },
-    { text: '有什么东西——正在靠近。', style: 'danger', delay: 600, glitch: true },
+    { text: 'intro.line12', style: 'danger', delay: 400 },
+    { text: 'intro.danger', style: 'danger', delay: 600, glitch: true },
 ];
 
 const getLineStyle = (style: IntroLine['style']): string => {
@@ -69,7 +69,10 @@ const getLineStyle = (style: IntroLine['style']): string => {
     }
 };
 
+import { useTranslation } from 'react-i18next';
+
 export const GameIntro: React.FC<GameIntroProps> = ({ onStart }) => {
+    const { t } = useTranslation();
     const [visibleLines, setVisibleLines] = useState(0);
     const [showButton, setShowButton] = useState(false);
     const [isExiting, setIsExiting] = useState(false);
@@ -234,7 +237,7 @@ export const GameIntro: React.FC<GameIntroProps> = ({ onStart }) => {
                                 >
                                     {/* Prompt arrow for system lines */}
                                     {line.style === 'system' && <span className="mr-3 select-none opacity-50">{'>'}</span>}
-                                    {line.text}
+                                    {line.text.startsWith('intro.') ? t(line.text) : line.text}
                                 </div>
                             ))}
                         </div>
@@ -270,7 +273,7 @@ export const GameIntro: React.FC<GameIntroProps> = ({ onStart }) => {
                                     <div className="absolute -bottom-1 -right-1 w-2 h-2 border-b border-r border-emerald-500"></div>
 
                                     <span className="relative z-10 group-hover:text-emerald-100 transition-colors">
-                                        进入 · 崇山医院
+                                        {t('landing.enter')}
                                     </span>
 
                                     {/* Button Glitch Hover */}

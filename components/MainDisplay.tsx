@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Choice } from '../types';
 import { generateSceneImage } from '../services/geminiService';
 
@@ -30,16 +31,6 @@ const getActionIcon = (type: string) => {
     case 'item': return 'back_hand';
     case 'risky': return 'skull';
     default: return 'radio_button_checked';
-  }
-};
-
-const getActionLabel = (type: string) => {
-  switch (type) {
-    case 'move': return '移动';
-    case 'investigate': return '调查';
-    case 'item': return '物品';
-    case 'risky': return '高危';
-    default: return '常规';
   }
 };
 
@@ -177,17 +168,27 @@ export const MainDisplay: React.FC<MainDisplayProps> = ({
   // Use Pollinations AI or OpenAI for dynamic image generation
   const [imageUrl, setImageUrl] = useState<string>('');
   const [isImageLoading, setIsImageLoading] = useState(false);
+  const { t } = useTranslation();
   const [clockText, setClockText] = useState('');
 
   useEffect(() => {
     const tick = () => {
-      setClockText(new Date().toLocaleTimeString('zh-CN', { hour12: false }));
+      setClockText(new Date().toLocaleTimeString('en-US', { hour12: false }));
     };
-
+    const timer = setInterval(tick, 1000);
     tick();
-    const timer = window.setInterval(tick, 1000);
-    return () => window.clearInterval(timer);
+    return () => clearInterval(timer);
   }, []);
+
+  const getActionLabel = (type: string) => {
+    switch (type) {
+      case 'move': return t('actions.move');
+      case 'investigate': return t('actions.investigate');
+      case 'item': return t('actions.item');
+      case 'risky': return t('actions.risky');
+      default: return t('actions.normal');
+    }
+  };
 
   const sessionCode = buildSessionCode(narrative || imagePrompt || '0000');
 
@@ -381,9 +382,9 @@ export const MainDisplay: React.FC<MainDisplayProps> = ({
       <div className={`absolute top-4 left-4 z-10 flex flex-col font-header ${themeColor} text-xs md:text-sm tracking-[0.2em] opacity-80 pointer-events-none`}>
         <span className="flex items-center gap-2">
           <span className={`w-2 h-2 ${isVictory ? 'bg-emerald-500' : 'bg-red-600'} rounded-full animate-pulse shadow-[0_0_8px_currentColor]`}></span>
-          {isGameOver ? (isVictory ? '传输完成' : '连接中断') : '录制中'}
+          {isGameOver ? (isVictory ? t('hud.transmission_complete') : t('hud.connection_lost')) : t('hud.recording')}
         </span>
-        <span className="text-hospital-white/60 mt-1">机位_04 [夜视模式]</span>
+        <span className="text-hospital-white/60 mt-1">{t('hud.camera')}</span>
       </div>
       <div className="absolute top-4 right-4 z-10 font-header text-hospital-white/50 text-xs md:text-sm tracking-widest pointer-events-none text-right">
         <div>{clockText || '--:--:--'}</div>
@@ -395,7 +396,7 @@ export const MainDisplay: React.FC<MainDisplayProps> = ({
         <div className="absolute inset-0 flex items-center justify-center z-20 pointer-events-none bg-black/20 backdrop-blur-[2px]">
           <div className="font-header text-hospital-white text-lg md:text-xl animate-pulse tracking-[0.3em] bg-black/80 px-8 py-4 border border-white/20 shadow-[0_0_30px_rgba(0,0,0,0.8)]">
             <span className="inline-block w-2 h-2 bg-red-500 mr-3 animate-bounce"></span>
-            数据传输中...
+            {t('hud.data_transfer')}
           </div>
         </div>
       )}
@@ -418,9 +419,9 @@ export const MainDisplay: React.FC<MainDisplayProps> = ({
             <div className="h-6 bg-white/5 border-b border-white/10 flex items-center justify-between px-3">
               <div className="flex items-center gap-2">
                 <div className={`w-2 h-2 ${isVictory ? 'bg-emerald-500' : 'bg-red-900'} rounded-full`}></div>
-                <span className="font-header text-[10px] text-white/40 tracking-widest uppercase">系统日志_自动存档.txt</span>
+                <span className="font-header text-[10px] text-white/40 tracking-widest uppercase">{t('hud.log_file')}</span>
               </div>
-              <span className={`font-mono text-[10px] ${isVictory ? 'text-emerald-500/60' : 'text-red-500/60'}`}>{sessionCode}-X</span>
+              <span className={`font-mono text-[10px] ${isVictory ? 'text-emerald-500/60' : 'text-red-500/60'}`}>{isGameOver ? (isVictory ? t('hud.survived') : t('hud.lost')) : '...'}</span>
             </div>
 
             {/* Content Area */}
@@ -435,7 +436,7 @@ export const MainDisplay: React.FC<MainDisplayProps> = ({
               {isGameOver && (
                 <div className={`mt-4 pt-4 border-t ${isVictory ? 'border-emerald-900/50' : 'border-red-900/30'} shrink-0 text-center`}>
                   <p className={`${isVictory ? 'text-emerald-400 shadow-emerald-900' : 'text-red-600 shadow-red-900'} font-header text-2xl animate-pulse tracking-[0.2em] drop-shadow-lg`}>
-                    {isVictory ? '✔ 档案归档 // 生还确认' : '⚠ 信号丢失 // 连接断开'}
+                    {isGameOver ? (isVictory ? t('hud.survived') : t('hud.lost')) : '...'}
                   </p>
                 </div>
               )}
@@ -500,7 +501,7 @@ export const MainDisplay: React.FC<MainDisplayProps> = ({
               className={`md:col-span-full h-16 ${isVictory ? 'bg-emerald-950/80 hover:bg-emerald-900 border-emerald-500 text-emerald-100 shadow-[0_0_20px_rgba(16,185,129,0.2)]' : 'bg-red-950/80 hover:bg-red-900 border-red-500 text-red-100 shadow-[0_0_20px_rgba(220,38,38,0.2)]'} border font-header text-xl tracking-[0.3em] uppercase backdrop-blur-md transition-all flex items-center justify-center gap-4 group`}
             >
               <span className="material-symbols-outlined group-hover:rotate-180 transition-transform duration-500">restart_alt</span>
-             // {isVictory ? '新游戏' : '系统重启'} //
+              {isVictory ? t('hud.new_game') : t('hud.restart')}
             </button>
           )}
         </div>

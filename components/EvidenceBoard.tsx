@@ -1,8 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Evidence } from '../types';
 import { Polaroid, StickyNote, ConfidentialDoc, KeyItem } from './EvidenceItems';
 
 interface EvidenceBoardProps {
+  // ... existing props
   isOpen: boolean;
   onClose: () => void;
   inventory: Evidence[];
@@ -20,11 +22,14 @@ interface Position {
 // Main Board Component
 // ------------------------------------------------------------------
 export const EvidenceBoard: React.FC<EvidenceBoardProps> = ({ isOpen, onClose, inventory, turnCount }) => {
+  const { t } = useTranslation();
   const [positions, setPositions] = useState<{ [id: string]: Position }>({});
   const [isDragging, setIsDragging] = useState<string | null>(null);
   const dragOffset = useRef({ x: 0, y: 0 });
   const boardRef = useRef<HTMLDivElement>(null);
   const maxZIndex = useRef(10);
+  // ... rest of component
+
 
   // Load positions from localStorage on mount
   useEffect(() => {
@@ -161,7 +166,7 @@ export const EvidenceBoard: React.FC<EvidenceBoardProps> = ({ isOpen, onClose, i
         {/* Tools/Header overlay (Optional) */}
         <div className="absolute top-4 left-4 z-50 pointer-events-none">
           <h2 className="font-header text-4xl text-white/50 tracking-widest uppercase drop-shadow-md select-none transform -rotate-2">
-            生存记录 第{turnCount}天
+            {t('evidence.survival_record', 'Survival Record')} #{turnCount}
           </h2>
         </div>
 
@@ -170,7 +175,7 @@ export const EvidenceBoard: React.FC<EvidenceBoardProps> = ({ isOpen, onClose, i
           className="absolute top-4 right-4 z-50 bg-red-900/80 hover:bg-red-700 text-white px-4 py-2 rounded font-header border border-red-500 shadow-lg transition-transform hover:scale-105 active:scale-95 flex items-center gap-2"
         >
           <span className="material-symbols-outlined">arrow_back</span>
-          返回病房
+          {t('evidence.return', 'Return')}
         </button>
 
         {/* Board Content Area */}
@@ -206,14 +211,14 @@ export const EvidenceBoard: React.FC<EvidenceBoardProps> = ({ isOpen, onClose, i
 
           {inventory.length === 0 && (
             <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-              <p className="font-header text-3xl text-white/20 select-none">暂无关键线索</p>
+              <p className="font-header text-3xl text-white/20 select-none">{t('evidence.empty')}</p>
             </div>
           )}
         </div>
 
         {/* Footer info */}
         <div className="absolute bottom-0 w-full bg-black/80 text-center py-2 border-t border-white/10 pointer-events-none">
-          <p className="font-mono text-xs text-green-500/50 tracking-[0.5em]">生存状态: 探索中 // 关键线索: {inventory.length}/12 已发现</p>
+          <p className="font-mono text-xs text-green-500/50 tracking-[0.5em]">{t('evidence.status_line', { count: inventory.length, defaultValue: `Status: Exploring // Evidence: ${inventory.length}/12` })}</p>
         </div>
       </div>
     </div>

@@ -1,0 +1,487 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8" />
+    <meta content="width=device-width, initial-scale=1.0" name="viewport" />
+    <title>Field Agent HUD - Interactive Environment Map</title>
+    <script src="https://cdn.tailwindcss.com?plugins=forms,typography,container-queries"></script>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&amp;family=Noto+Sans+SC:wght@400;700&amp;family=Creepster&amp;display=swap"
+        rel="stylesheet" />
+    <link
+        href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap"
+        rel="stylesheet" />
+    <style type="text/tailwindcss">
+        :root {
+            --primary: #b91c1c;
+            --background-dark: #020202;
+            --hud-line: rgba(185, 28, 28, 0.4);
+            --accent-teal: #2dd4bf;
+            --poi-glow: rgba(185, 28, 28, 0.6);
+        }
+        body {
+            font-family: "Share Tech Mono", monospace;
+            background-color: var(--background-dark);
+            color: #d1d5db;
+        }
+        .font-horror { font-family: "Creepster", cursive; }
+        .font-sc { font-family: "Noto Sans SC", sans-serif; }
+        .hud-background-container {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100vh;
+            z-index: 0;
+            overflow: hidden;
+        }
+        .hospital-bg {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-image: linear-gradient(to bottom, rgba(0,0,0,0.1) 0%, rgba(5,5,5,0.8) 70%, rgba(2,2,2,1) 100%), url(https://lh3.googleusercontent.com/aida-public/AB6AXuDDPrVm25rk4p-xEc7zcGmCKQu4xe8K_dbFCwHF4f8ed11XvyfkswqCope4QImFLmbpZ3QsKAt6W-FiEBPLYf9wtwzg7eeM-DBcsBlhjnWNeHpPvGYaVq9HLlNa_hLaeG1QwkwyKSZBpq9VvGdnFLZlM1IPXbVouylo4bhc5R_ZeV1E8HJo2SoqI6Kabtn5FSEOcnFwL5D0piAJbJYYRWc_1AbjeGc9jry3nCxmMAQ05YMiF0fz-wyH5GLrAvsX4ZOCa_6it8XoZcQ);
+            background-size: cover;
+            background-position: center;
+            filter: contrast(1.2) saturate(0.9) brightness(0.8);
+        }
+        .hud-vignette {
+            position: absolute;
+            inset: 0;
+            background: radial-gradient(circle, transparent 20%, rgba(0,0,0,0.9) 100%);
+            pointer-events: none;
+        }
+        .grimy-overlay {
+            position: fixed;
+            inset: 0;
+            background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 400 400' xmlns='http://www.w3.org/2000/svg'%3BaseFrequency='0.7' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E");
+            opacity: 0.05;
+            pointer-events: none;
+            z-index: 10;
+        }
+        .scanlines {
+            position: fixed;
+            inset: 0;
+            background: linear-gradient(to bottom, transparent 50%, rgba(0,0,0,0.1) 50%);
+            background-size: 100% 4px;
+            pointer-events: none;
+            z-index: 50;
+        }
+        .hud-frame {
+            border: 1px solid var(--hud-line);
+            background: rgba(0, 0, 0, 0.75);
+            backdrop-filter: blur(12px);
+            position: relative;
+        }
+        .hud-frame::before {
+            content: '';
+            position: absolute;
+            top: -1px; left: -1px; width: 12px; height: 12px;
+            border-top: 2px solid var(--primary);
+            border-left: 2px solid var(--primary);
+        }
+        .hud-frame::after {
+            content: '';
+            position: absolute;
+            bottom: -1px; right: -1px; width: 12px; height: 12px;
+            border-bottom: 2px solid var(--primary);
+            border-right: 2px solid var(--primary);
+        }
+        .metric-glow {
+            text-shadow: 0 0 15px rgba(185, 28, 28, 0.8), 0 0 5px rgba(255, 255, 255, 0.2);
+        }
+        .hud-corner-tag {
+            font-size: 8px;
+            color: var(--primary);
+            position: absolute;
+            top: 2px;
+            left: 4px;
+            letter-spacing: 1px;
+        }
+        .floating-overlay {
+            background: rgba(0, 0, 0, 0.4);
+            border: 1px solid rgba(255,255,255,0.1);
+            backdrop-filter: blur(4px);
+        }.poi-marker {
+            position: absolute;
+            cursor: pointer;
+            z-index: 30;
+        }
+        .poi-dot {
+            width: 12px;
+            height: 12px;
+            background: var(--primary);
+            border-radius: 50%;
+            box-shadow: 0 0 10px var(--primary);
+        }
+        .poi-ring {
+            position: absolute;
+            top: -6px;
+            left: -6px;
+            width: 24px;
+            height: 24px;
+            border: 1px solid var(--primary);
+            border-radius: 50%;
+            opacity: 0.5;
+        }
+        .poi-label {
+            position: absolute;
+            left: 20px;
+            top: -4px;
+            white-space: nowrap;
+            background: rgba(185, 28, 28, 0.2);
+            border: 1px solid var(--primary);
+            padding: 2px 8px;
+            font-size: 10px;
+            color: white;
+            letter-spacing: 1px;
+            pointer-events: none;
+            opacity: 0.8;
+        }
+        .poi-panel {
+            display: none;
+            position: absolute;
+            top: 30px;
+            left: 20px;
+            width: 240px;
+            background: rgba(0,0,0,0.9);
+            border: 1px solid var(--hud-line);
+            padding: 12px;
+            z-index: 40;
+            backdrop-filter: blur(8px);
+        }
+        .poi-marker:hover .poi-panel {
+            display: block;
+        }
+        .poi-marker:hover .poi-dot {
+            background: white;
+            box-shadow: 0 0 15px white;
+        }
+    </style>
+    <script>
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        primary: "#b91c1c",
+                        "accent-teal": "#2dd4bf",
+                    }
+                },
+            },
+        };
+        document.documentElement.classList.add('dark');
+    </script>
+</head>
+
+<body class="min-h-screen relative flex flex-col overflow-x-hidden">
+    <div class="hud-background-container">
+        <div class="hospital-bg"></div>
+        <div class="poi-marker" style="top: 35%; left: 25%;">
+            <div class="poi-dot"></div>
+            <div class="poi-ring"></div>
+            <div class="poi-label font-mono">ANOMALY_01_DETECTED</div>
+            <div class="poi-panel hud-frame">
+                <div class="hud-corner-tag">SCAN_DATA</div>
+                <h4 class="text-primary text-xs font-bold mb-1 mt-2">THERMAL_SIGNATURE: HIGH</h4>
+                <p class="text-[10px] text-gray-400 font-sc">Detected non-Euclidean spatial distortion. Matter density
+                    fluctuating at 14Hz. Do not approach without reality anchors.</p>
+            </div>
+        </div>
+        <div class="poi-marker" style="top: 45%; left: 70%;">
+            <div class="poi-dot"></div>
+            <div class="poi-ring"></div>
+            <div class="poi-label font-mono">ENTRY_POINT_B</div>
+            <div class="poi-panel hud-frame">
+                <div class="hud-corner-tag">LOC_DATA</div>
+                <h4 class="text-accent-teal text-xs font-bold mb-1 mt-2">SECURE_CORRIDOR</h4>
+                <p class="text-[10px] text-gray-400 font-sc">Psych Ward entrance. Surveillance cameras offline. Manual
+                    override required for hydraulic lock engagement.</p>
+            </div>
+        </div>
+        <div class="poi-marker" style="top: 20%; left: 50%;">
+            <div class="poi-dot"></div>
+            <div class="poi-ring"></div>
+            <div class="poi-label font-mono">NEURAL_HAZE_ZONE</div>
+            <div class="poi-panel hud-frame">
+                <div class="hud-corner-tag">ENV_DATA</div>
+                <h4 class="text-yellow-500 text-xs font-bold mb-1 mt-2">COGNITIVE_HAZARD</h4>
+                <p class="text-[10px] text-gray-400 font-sc">Ambient noise levels exceed psychological safety limits.
+                    Agents report whispers in localized frequency bands.</p>
+            </div>
+        </div>
+        <div class="hud-vignette"></div>
+    </div>
+    <div class="grimy-overlay"></div>
+    <div class="scanlines"></div>
+    <header
+        class="fixed top-0 w-full z-[100] bg-black/60 backdrop-blur-md border-b border-red-900/40 h-14 flex items-center justify-between px-6">
+        <div class="flex items-center space-x-3">
+            <span class="material-symbols-outlined text-primary text-2xl">videocam</span>
+            <div class="flex flex-col">
+                <span class="text-sm font-bold tracking-tighter text-white">REC [FIELD_AGENT_08] - HUD_OVERLAY_V4</span>
+                <span class="text-[8px] text-red-500 font-mono">SIGNAL_STRENGTH: 94% | SYNC: OPTIMAL</span>
+            </div>
+        </div>
+        <nav class="flex items-center space-x-6 text-[10px] uppercase tracking-widest text-gray-300 font-bold">
+            <a class="hover:text-primary transition-colors flex items-center gap-1" href="#"><span
+                    class="material-symbols-outlined text-xs">grid_view</span> Environment</a>
+            <a class="hover:text-primary transition-colors flex items-center gap-1" href="#"><span
+                    class="material-symbols-outlined text-xs">history</span> Sensor_Logs</a>
+            <button
+                class="bg-red-900/40 border border-red-600 px-3 py-1 text-white hover:bg-red-700/60 transition-all text-[9px]">
+                EMERGENCY_EXIT
+            </button>
+        </nav>
+    </header>
+    <main class="relative flex-grow flex flex-col items-center w-full max-w-7xl mx-auto px-4 z-20 pt-16">
+        <section class="w-full pt-10 pb-16 flex flex-col items-center">
+            <div class="text-center mb-12 relative">
+                <div
+                    class="absolute -top-6 left-1/2 -translate-x-1/2 text-[10px] text-red-500 font-mono tracking-[0.6em] bg-black/40 px-4 py-1 border border-red-900/30">
+                    RECON_MODE_ENGAGED</div>
+                <h1
+                    class="font-horror text-7xl md:text-9xl text-primary tracking-tighter mb-4 metric-glow drop-shadow-[0_0_20px_rgba(185,28,28,0.5)]">
+                    ANOMALY AGENTS
+                </h1>
+                <div
+                    class="flex items-center justify-center gap-4 text-xs font-mono text-gray-300 tracking-[0.4em] uppercase">
+                    <span class="w-16 h-px bg-red-600/40"></span>
+                    Interactive Field Overlay
+                    <span class="w-16 h-px bg-red-600/40"></span>
+                </div>
+            </div>
+            <div class="w-full grid grid-cols-1 md:grid-cols-3 gap-6 mb-16 px-4">
+                <div
+                    class="floating-overlay p-5 border-l-4 border-primary relative group hover:bg-black/60 transition-all">
+                    <span class="absolute top-1 right-2 text-[8px] text-gray-500">HUD_MT_01</span>
+                    <div class="text-[10px] text-gray-300 font-mono uppercase tracking-widest mb-1">Operatives Deployed
+                    </div>
+                    <div class="text-4xl font-bold text-white metric-glow">1,402</div>
+                    <div class="text-[9px] text-green-500 font-mono mt-1 flex items-center gap-1">
+                        <span class="material-symbols-outlined text-[10px]">sensors</span> BIO_SENSORS_ACTIVE
+                    </div>
+                </div>
+                <div
+                    class="floating-overlay p-5 border-l-4 border-accent-teal relative group hover:bg-black/60 transition-all">
+                    <span class="absolute top-1 right-2 text-[8px] text-gray-500">HUD_MT_02</span>
+                    <div class="text-[10px] text-gray-300 font-mono uppercase tracking-widest mb-1">AI Tactical Units
+                    </div>
+                    <div class="text-4xl font-bold text-accent-teal metric-glow">8,952</div>
+                    <div class="text-[9px] text-accent-teal font-mono mt-1">MESH_NETWORK_STABLE</div>
+                </div>
+                <div
+                    class="floating-overlay p-5 border-l-4 border-red-600 relative group hover:bg-black/60 transition-all">
+                    <span class="absolute top-1 right-2 text-[8px] text-gray-500">HUD_MT_03</span>
+                    <div class="text-[10px] text-gray-300 font-mono uppercase tracking-widest mb-1">Local Corruption
+                    </div>
+                    <div class="text-4xl font-bold text-red-600 metric-glow">87.6%</div>
+                    <div class="text-[9px] text-red-500 font-mono mt-1 flex items-center gap-1">
+                        <span class="material-symbols-outlined text-[10px]">warning</span> PSYCH_HAZARD_LEVEL_4
+                    </div>
+                </div>
+            </div>
+            <div class="flex flex-col sm:flex-row items-center justify-center gap-8 w-full max-w-lg">
+                <button
+                    class="group w-full sm:w-1/2 py-4 border border-red-600/50 bg-red-950/20 backdrop-blur-md hover:bg-red-800/40 text-white font-bold tracking-widest flex items-center justify-center gap-3 transition-all relative overflow-hidden">
+                    <div
+                        class="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-700">
+                    </div>
+                    <span class="material-symbols-outlined text-sm">person</span>
+                    HUMAN_LINK
+                </button>
+                <button
+                    class="group w-full sm:w-1/2 py-4 border border-gray-600 bg-black/60 backdrop-blur-md hover:border-accent-teal hover:text-accent-teal transition-all flex items-center justify-center gap-3 tracking-widest">
+                    <span class="material-symbols-outlined text-sm">smart_toy</span>
+                    AI_NEURAL_LINK
+                </button>
+            </div>
+        </section>
+        <section class="w-full space-y-10 pb-32">
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-10 items-stretch">
+                <div class="hud-frame p-1 shadow-2xl shadow-red-950/20">
+                    <div class="bg-black/90 flex flex-col h-full">
+                        <div class="p-5 border-b border-white/10 flex justify-between items-center bg-zinc-900/30">
+                            <div>
+                                <h2 class="text-2xl font-bold text-white font-sc">Chongshan Sanatorium</h2>
+                                <p class="text-[9px] text-red-500 font-mono uppercase tracking-widest">SECTOR_ID:
+                                    NORTH_WING_LVL3</p>
+                            </div>
+                            <span
+                                class="text-[10px] font-mono text-red-500 bg-red-950/60 border border-red-900 px-3 py-1 animate-pulse">THREAT:
+                                OMEGA</span>
+                        </div>
+                        <div class="p-8 space-y-6">
+                            <div
+                                class="text-base text-gray-300 leading-relaxed font-sc border-l-4 border-red-800 pl-6 py-2">
+                                Structural integrity of the 3rd floor is collapsing into the lower levels. <span
+                                    class="text-red-500 font-bold underline">Reality bleed reported in Room 304.</span>
+                                Multiple entities manifest and vanish within microseconds.
+                            </div>
+                            <div class="grid grid-cols-2 gap-6 text-[11px] font-mono">
+                                <div class="bg-white/5 p-3 border border-white/10">
+                                    <span class="block text-gray-500 uppercase mb-1">Primary Objective</span>
+                                    <span class="text-white font-bold">EXTRACT_CORE_SAMPLES</span>
+                                </div>
+                                <div class="bg-white/5 p-3 border border-white/10">
+                                    <span class="block text-gray-500 uppercase mb-1">Extraction Point</span>
+                                    <span class="text-accent-teal font-bold">ROOFTOP_HELI_B</span>
+                                </div>
+                            </div>
+                        </div>
+                        <button
+                            class="mt-auto w-full py-5 text-xs font-mono font-bold uppercase text-red-500 border-t border-white/10 hover:bg-red-900/30 transition-all bg-black">
+                            INITIALIZE_INFILTRATION_PROTOCOL
+                        </button>
+                    </div>
+                </div>
+                <div class="hud-frame p-1 shadow-2xl shadow-green-950/10">
+                    <div class="bg-black text-green-500 font-mono h-full flex flex-col">
+                        <div
+                            class="bg-zinc-950/90 px-5 py-3 flex justify-between items-center border-b border-green-900/30">
+                            <span class="text-[11px] flex items-center gap-2"><span
+                                    class="w-2 h-2 rounded-full bg-green-500 shadow-[0_0_8px_#22c55e]"></span>
+                                TACTICAL_TERMINAL</span>
+                            <span class="text-[9px] text-green-900">v4.1.2-OVERRIDE</span>
+                        </div>
+                        <div
+                            class="p-8 flex-grow bg-[url('https://www.transparenttextures.com/patterns/carbon-fibre.png')]">
+                            <h3 class="text-base font-bold flex items-center gap-2 mb-4">
+                                <span class="material-symbols-outlined text-sm">terminal</span>
+                                REMOTE_INJECTION_SEQUENCE
+                            </h3>
+                            <p class="text-xs text-green-700 mb-6 font-sc italic">Bypass site-security via neural mesh
+                                handshake. Ensure agent-brain barrier is active.</p>
+                            <div class="bg-black/80 border border-green-500/40 p-5 relative group">
+                                <code class="text-sm break-all text-green-400">
+                                sudo inject-pack --target "CHONGSHAN_B" --id "AGENT_08"
+                            </code>
+                                <button
+                                    class="absolute right-3 top-3 text-green-900 hover:text-green-400 transition-colors">
+                                    <span class="material-symbols-outlined text-sm">content_copy</span>
+                                </button>
+                            </div>
+                            <div class="mt-8 space-y-2 text-[10px] text-green-900">
+                                <div class="flex justify-between"><span>&gt; UPLOADING_ASSETS...</span>
+                                    <span>[88%]</span></div>
+                                <div class="flex justify-between"><span>&gt; NEURAL_SYNC...</span> <span
+                                        class="text-green-400">SUCCESS</span></div>
+                                <div class="mt-4 text-green-500 animate-pulse">&gt; AWAITING_FINAL_CONFIRMATION... _
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="hud-frame p-8 bg-black/80 backdrop-blur-xl">
+                <div class="hud-corner-tag">FIELD_OPS_PHASES</div>
+                <h3 class="text-xl font-bold text-white mb-10 flex items-center gap-3">
+                    <span class="material-symbols-outlined text-red-600">radar</span>
+                    ENVIRONMENT_ENGAGEMENT_FLOW
+                </h3>
+                <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-8">
+                    <div
+                        class="space-y-3 border-l-2 border-red-900/30 pl-5 hover:border-primary transition-colors py-1">
+                        <div class="text-red-500 text-xs font-bold tracking-widest">01. SCAN</div>
+                        <p class="text-[12px] text-gray-400 font-sc leading-relaxed">Map spatial anomalies and identify
+                            points of interaction.</p>
+                    </div>
+                    <div
+                        class="space-y-3 border-l-2 border-red-900/30 pl-5 hover:border-primary transition-colors py-1">
+                        <div class="text-red-500 text-xs font-bold tracking-widest">02. SYNC</div>
+                        <p class="text-[12px] text-gray-400 font-sc leading-relaxed">Calibrate AR overlay to local
+                            reality-thinning frequency.</p>
+                    </div>
+                    <div
+                        class="space-y-3 border-l-2 border-red-900/30 pl-5 hover:border-primary transition-colors py-1">
+                        <div class="text-red-500 text-xs font-bold tracking-widest">03. BREACH</div>
+                        <p class="text-[12px] text-gray-400 font-sc leading-relaxed">Deploy AI units to stabilize
+                            entrance points for agent entry.</p>
+                    </div>
+                    <div
+                        class="space-y-3 border-l-2 border-red-900/30 pl-5 hover:border-primary transition-colors py-1">
+                        <div class="text-red-500 text-xs font-bold tracking-widest">04. REPORT</div>
+                        <p class="text-[12px] text-gray-400 font-sc leading-relaxed">Transmit environmental telemetry
+                            back to Command.</p>
+                    </div>
+                </div>
+            </div>
+            <div class="w-full pt-12">
+                <div class="flex items-center justify-between mb-8">
+                    <h3 class="text-xs font-bold text-white tracking-[0.4em] flex items-center gap-3">
+                        <span class="material-symbols-outlined text-yellow-600 text-base">military_tech</span>
+                        TOP_SECTOR_CONTRIBUTORS
+                    </h3>
+                    <div
+                        class="text-[9px] text-red-500 font-mono flex items-center gap-2 bg-red-950/30 px-3 py-1 border border-red-900/40">
+                        <span class="w-1.5 h-1.5 bg-red-600 rounded-full animate-ping"></span> LIVE_TELEMETRY
+                    </div>
+                </div>
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                    <div
+                        class="floating-overlay border border-white/10 p-4 flex items-center gap-5 hover:bg-white/5 hover:border-primary transition-all group">
+                        <div
+                            class="w-12 h-12 bg-zinc-900 rounded-sm overflow-hidden border border-zinc-700 group-hover:border-primary">
+                            <img alt="A1"
+                                class="w-full h-full object-cover grayscale brightness-50 group-hover:brightness-100 transition-all"
+                                src="https://lh3.googleusercontent.com/aida-public/AB6AXuBCFgeyMlLGiUxoIqe6PHtVHJYJr6QyLbzjwdC9dz_1dQ5hvYDfWGM9fEQgkYI7tHX3Ph6S0JNMY5gqTqJ4eb04zgDSrLuxOU9rFA1xh3tkTtN4AZHdKu3cG9bqjpsAKGU6oJZ54BsaA0FfBFkCinw17p8eXAsrfawHcSwyDZP69FuqIg5OvFg9u4m_i10YTwi80siD9of4glpo1lywJdCyGOSCh_z4aZrhqx4EOnIq6mjo2DZEva7BcGqDhRanRzhILd8C3ZDSUiA" />
+                        </div>
+                        <div>
+                            <div class="text-xs font-bold text-white uppercase tracking-wider">Phantom_9</div>
+                            <div class="text-[9px] text-accent-teal mt-1 font-mono">NEURAL_STABILITY: 98%</div>
+                        </div>
+                    </div>
+                    <div
+                        class="floating-overlay border border-white/10 p-4 flex items-center gap-5 hover:bg-white/5 hover:border-primary transition-all group">
+                        <div
+                            class="w-12 h-12 bg-zinc-900 rounded-sm overflow-hidden border border-zinc-700 group-hover:border-primary">
+                            <img alt="A2"
+                                class="w-full h-full object-cover grayscale brightness-50 group-hover:brightness-100 transition-all"
+                                src="https://lh3.googleusercontent.com/aida-public/AB6AXuDvPzhBTon1NHmIoh8gxL35WUwcN-yImWbCJ2SnPtobId-ffswNeG_LxeTl7dakgrP54mV2hhGKbDoZOaTu4xcAJkmZVGPzOqld0r0l17sJBZDGAJMpzUFzWT7F3y7qubBkU6FDlWdLblCI-pcsTuOnP5KQMJG3QsF_ago2z1A2RgA066U4bK5rW4n1E3q4VcRSpIb8RGXTEmTdg1Qu5gVH-TNT38S8HQosB0Rq5jz8hMcWfdVvwi1fqIaJnVkeP41mKt_oNMiV9Go" />
+                        </div>
+                        <div>
+                            <div class="text-xs font-bold text-white uppercase tracking-wider">Specter_K</div>
+                            <div class="text-[9px] text-accent-teal mt-1 font-mono">NEURAL_STABILITY: 84%</div>
+                        </div>
+                    </div>
+                    <div
+                        class="floating-overlay border border-white/10 p-4 flex items-center gap-5 hover:bg-white/5 hover:border-primary transition-all group">
+                        <div
+                            class="w-12 h-12 bg-zinc-900 rounded-sm overflow-hidden border border-zinc-700 group-hover:border-primary">
+                            <img alt="A3"
+                                class="w-full h-full object-cover grayscale brightness-50 group-hover:brightness-100 transition-all"
+                                src="https://lh3.googleusercontent.com/aida-public/AB6AXuCsj9V_XodqJZWh4uyQd7l0iFNflzRRakUgNUhwaNRsjjRx2bP7SaNVSOGM9wWHrd6VC2rum7UQE0qWaI4v8bd4aXY7qiJGtzr3Qc8DBJ3-VkRhHu-v--oldPMQJyN96hSmBQ_BVAhcqdpWVs0KFuOn3J1qGC8SqaRA_6wQi9HK22SdNs1AP7Y_cp3VKl9MlXwEyByEOPlKTUo4z0Kcxk-yxXa3SzL177bJwsujRKQV7a7ZgIvwbidD7Cevyi6IAhrEAvn-IPa-MWo" />
+                        </div>
+                        <div>
+                            <div class="text-xs font-bold text-white uppercase tracking-wider">Zero_Null</div>
+                            <div class="text-[9px] text-accent-teal mt-1 font-mono">NEURAL_STABILITY: 91%</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+    </main>
+    <footer
+        class="fixed bottom-0 w-full h-10 bg-black/90 backdrop-blur-md border-t border-red-900/50 flex justify-between items-center px-6 z-[100] text-[9px] text-gray-400 uppercase font-mono tracking-widest">
+        <div class="flex items-center space-x-6">
+            <div class="flex items-center gap-2">
+                <span class="w-2 h-2 bg-green-500 rounded-full animate-pulse shadow-[0_0_8px_#22c55e]"></span>
+                COMMS_STATUS: ENCRYPTED
+            </div>
+            <div class="hidden sm:block text-zinc-600">|</div>
+            <div class="hidden sm:block">ENVIRONMENT_SCAN: ACTIVE</div>
+        </div>
+        <div class="text-red-700 font-bold bg-red-950/20 px-3 py-1 border border-red-900/30">
+            NEURAL_LOAD: 42.1% - WITHIN_LIMITS
+        </div>
+        <div class="hidden md:flex items-center gap-4">
+            <span>GRID: 34.90N / 112.54E</span>
+            <span class="text-white">SYS_CLOCK: 02:14:55</span>
+        </div>
+    </footer>
+
+</body>
+
+</html>

@@ -1,6 +1,8 @@
 'use client';
 
 import React, { useState, useEffect, useRef } from 'react';
+import './lib/i18n'; // Initialize i18n
+import { useTranslation } from 'react-i18next';
 import { GameState, Choice, GeminiResponse } from './types';
 import { INITIAL_STATE } from './constants';
 import { GameConfig, DEFAULT_GAME_CONFIG, DifficultyPreset } from './gameConfig';
@@ -12,13 +14,16 @@ import { CRTLayer } from './components/CRTLayer';
 import { EvidenceBoard } from './components/EvidenceBoard';
 import { SettingsModal } from './components/SettingsModal';
 import { GameIntro } from './components/GameIntro';
+import { LandingPage } from './components/LandingPage';
 
 const App: React.FC = () => {
+  const { t, i18n } = useTranslation();
   const [gameState, setGameState] = useState<GameState>(INITIAL_STATE);
   const [history, setHistory] = useState<string[]>([]);
   const [showEvidence, setShowEvidence] = useState(false);
   const [hasNewEvidence, setHasNewEvidence] = useState(false);
-  const [showIntro, setShowIntro] = useState(true);
+  const [showLanding, setShowLanding] = useState(true);
+  const [showIntro, setShowIntro] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [apiKey, setApiKey] = useState("");
   const [baseUrl, setBaseUrl] = useState("");
@@ -206,8 +211,26 @@ const App: React.FC = () => {
 
   return (
     <div className="h-screen w-screen overflow-hidden flex flex-col font-body bg-black text-gray-200">
-      {showIntro && <GameIntro onStart={() => setShowIntro(false)} />}
-      <CRTLayer sanity={gameState.sanity} />
+      {showLanding && (
+        <LandingPage
+          onHumanEnter={() => {
+            setShowLanding(false);
+            setShowIntro(true);
+          }}
+          onAgentEnter={() => {
+            // "Agent" implies automated tools, maybe just open the app in a "dev" mode?
+            // User request just said "provide entry/getting started instructions".
+            // For now, let's just enter the game, or maybe show an alert "API Access Enabled"?
+            setShowLanding(false);
+            setShowIntro(true);
+            setIsSettingsOpen(true); // Open settings for "Agent" to configure API keys
+          }}
+          currentLanguage={i18n.language}
+          onLanguageChange={(lang) => i18n.changeLanguage(lang)}
+        />
+      )}
+      {!showLanding && showIntro && <GameIntro onStart={() => setShowIntro(false)} />}
+      {!showLanding && <CRTLayer sanity={gameState.sanity} />}
 
       <Header
         sanity={gameState.sanity}
@@ -263,16 +286,18 @@ const App: React.FC = () => {
         enableImageGen={enableImageGen}
         gameConfig={gameConfig}
         onSave={handleSaveSettings}
+        currentLanguage={i18n.language}
+        onLanguageChange={(lang) => i18n.changeLanguage(lang)}
       />
 
       {/* Mobile Rule Button (Optional, simple overlay implementation for mobile) */}
       <div className="lg:hidden fixed top-20 right-4 z-40">
         <details className="relative">
           <summary className="list-none bg-yellow-600 text-black px-3 py-1 rounded font-header text-sm cursor-pointer border border-yellow-800 shadow-lg">
-            守则
+            {t('hud.rules')}
           </summary>
           <div className="absolute right-0 mt-2 w-64 bg-[#dcdcdc] p-4 text-black rounded shadow-xl border-4 border-metal-dark max-h-96 overflow-y-auto">
-            <h3 className="font-header font-bold text-center mb-2 text-red-800 underline">患者守则</h3>
+            <h3 className="font-header font-bold text-center mb-2 text-red-800 underline">{t('landing.rule_title')}</h3>
             <ul className="space-y-2 font-hand text-lg">
               {gameState.rules.map((r, i) => <li key={i}>{i + 1}. {r}</li>)}
             </ul>

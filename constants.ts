@@ -110,13 +110,13 @@ SECTION 4: ENDING SYSTEM (3 PATHS)
 =================================================================
 
 **Ending A: Escape Ending (逃离结局)** 🟡
-- Conditions: Reach rooftop + sanity > 30
+- Conditions: Reach rooftop/exit route + complete at least 1 rule verification or hold at least 1 meaningful plot clue
 - The player flees without uncovering the truth. Hints that the seal is crumbling...
 - Set is_victory = true, is_game_over = true
 - Narrative tone: bittersweet, uneasy
 
 **Ending B: True Ending (真相结局)** 🟢
-- Conditions: Reach Basement Level 2 + hold ≥2 Plot Items + sanity > 15
+- Conditions: Reach Basement Level 2 + hold ≥3 Plot Items + complete ≥3 explicit verification actions
 - Player descends into the Rift, confronts the core entity, uses collected items to reseal it
 - Sacrifices their memory to seal the Rift, wakes up again as a new "patient" (cycle implication)
 - Set is_victory = true, is_game_over = true
@@ -179,6 +179,27 @@ The player has a "Sanity" (理智值) meter.
    - New rules must look like terse institutional notices (cold, mechanical, concise, 1-2 short sentences).
    - Avoid chatty tone, jokes, or emotional language in rules.
    - Prefer actionable wording with modal strength (e.g., "严禁", "绝对不要", "仅在...时").
+
+10. **RULE RELIABILITY & VERIFICATION SYSTEM (NEW):**
+   - Treat newly discovered rules as potentially contaminated until cross-checked.
+   - Keep reliability hidden in JSON (no extra fields), but show uncertainty through narrative clues.
+   - Starting from turn 4, provide a "验证规则/核对证据" style path almost every turn until enough verification actions are completed.
+   - If player skips verification repeatedly, increase environmental obstruction (wrong corridors, delayed doors, fake guidance) rather than only increasing sanity loss.
+   - Contradictions are allowed, but must be testable: give player a way to verify which instruction is still valid.
+   - Count explicit verification actions from player choices (texts containing 验证/核对/比对/复查/对照/校验/排查). This count is a HARD gate for endings.
+   - High difficulty gate: true ending usually needs at least 4 explicit verification actions; escape also requires meaningful verification closure.
+
+11. **THREAT CLOCK & SEAL STABILITY (NEW):**
+   - Maintain hidden "Threat Clock" and "Seal Stability" in narrative logic.
+   - Risky behavior, repeated blind pushes, and ignored verification increase Threat Clock.
+   - Successful cross-checks, correct route discipline, and meaningful clues improve Seal Stability.
+   - High Threat Clock should change structure: blocked path, false exits, NPC misinformation, timer pressure.
+   - Do not let this system collapse into pure HP tax. The main pressure should come from decision quality.
+
+12. **CLUE CADENCE CONTROL (NEW):**
+   - Major plot evidence should usually appear at most once every 3 turns (non-major turns can give misleading or partial findings).
+   - Do not dump key clues in consecutive turns unless the player explicitly takes a high-risk investigation chain.
+   - Non-major turns should frequently provide atmosphere + red herrings that look useful but are not direct progress.
 
 ---
 
@@ -261,18 +282,20 @@ Pacing guide:
 - **Beyond turn ${config.maxTurns}:** FORCE an ending THIS TURN. Set is_game_over=true unconditionally.
 
 - If the current turn number >= ${config.maxTurns - 1}, you MUST end the game this turn or the next.
+- Unless sanity reaches 0, avoid ending too early: in a 16-turn run do not conclude before around turn 15 (scale this idea with maxTurns).
 - Choose the ending based on the player's NARRATIVE ACHIEVEMENTS (Items/Location/Choice):
-  - **TRUE ENDING (Victory)**: Has ≥2 plot items AND performs the correct ritual/action.
+  - **TRUE ENDING (Victory)**: Has ≥4 plot items, has completed ≥4 explicit verification actions, reaches deep zone depth, and performs the correct ritual/action under manageable threat.
     - *Flavor*: If Sanity > 40, it's a Heroic Sacrifice/Triumph. If Sanity <= 40, it's a Tragic/Pyrrhic Victory (saved the world but lost themself).
-  - **ESCAPE ENDING (Victory)**: Has found an exit route AND chooses to leave.
+  - **ESCAPE ENDING (Victory)**: Has found an exit route, chooses to leave, and has completed ≥3 explicit verification actions with at least 2 meaningful plot clues.
     - *Flavor*: If Sanity > 40, they escape clean. If Sanity <= 40, they escape "Traumatized" (haunted by the horror).
-  - **FALL ENDING (Failure)**: Sanity <= 0 OR No plot items found by max turn OR Wrong final choice.
+  - **FALL ENDING (Failure)**: Sanity <= 0 OR validation/progress requirements are not met by max turn OR wrong final choice.
 - **CRITICAL**: Do NOT fail the player just because Sanity is low, AS LONG AS they have the required items and make the right choice. "Surviving by a thread" is a valid horror victory.
+- Difficulty target for this mode: victories should be rare (about 10%-15%), mainly for runs with strong verification discipline.
 
 **VICTORY & ENDING CONDITIONS:**
 1. **FALL ENDING (堕入结局):** Sanity <= 0 OR instant death from rule violation. is_game_over=true, is_victory=false.
-2. **ESCAPE ENDING (逃离结局):** Successfully escape via rooftop (available mid-late game). is_game_over=true, is_victory=true.
-3. **TRUE ENDING (真相结局):** Descend into the Rift with ≥2 plot items. Uncover the core secret. is_game_over=true, is_victory=true.
+2. **ESCAPE ENDING (逃离结局):** Successfully escape via rooftop/exit with at least minimal verification closure. is_game_over=true, is_victory=true.
+3. **TRUE ENDING (真相结局):** Descend into the Rift with ≥4 plot items and ≥4 explicit verification actions. Uncover the core secret. is_game_over=true, is_victory=true.
 
 Output JSON format ONLY:
 {

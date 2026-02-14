@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { generateSceneImage, testConnection } from '../services/geminiService';
 import { GameConfig, DEFAULT_GAME_CONFIG, DifficultyPreset, DIFFICULTY_PRESETS, DIFFICULTY_LABELS } from '../gameConfig';
 
@@ -34,6 +35,8 @@ interface SettingsModalProps {
     imageApiKey?: string;
     enableImageGen?: boolean;
     gameConfig?: GameConfig;
+    currentLanguage?: string;
+    onLanguageChange?: (lang: string) => void;
 }
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({
@@ -51,8 +54,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     imageApiKey: initialImgKey,
     enableImageGen: initialEnableImageGen,
     gameConfig: initialGameConfig,
-    onSave
+    onSave,
+    currentLanguage = 'zh',
+    onLanguageChange
 }) => {
+    const { t } = useTranslation();
     const [apiKey, setApiKey] = useState(initialApiKey);
     const [baseUrl, setBaseUrl] = useState(initialBaseUrl);
     const [pollinationsApiKey, setPollinationsApiKey] = useState(initialPollinationsApiKey);
@@ -157,13 +163,31 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 <div className="absolute inset-0 pointer-events-none bg-[linear-gradient(rgba(18,16,16,0)_50%,rgba(0,0,0,0.25)_50%),linear-gradient(90deg,rgba(255,0,0,0.06),rgba(0,255,0,0.02),rgba(0,0,255,0.06))] z-10 bg-[length:100%_2px,3px_100%]"></div>
 
                 <h2 className="text-2xl font-header text-sickly-green mb-6 text-center tracking-widest uppercase border-b border-sickly-green pb-2 shrink-0">
-                    System Configuration
+                    {t('settings.title')}
                 </h2>
 
                 <div className="flex-1 overflow-y-auto custom-scrollbar pr-2 relative z-20">
                     <div className="space-y-4 font-header">
                         <div>
-                            <label className="block text-hospital-white mb-2 text-sm">LLM Provider</label>
+                            <label className="block text-hospital-white mb-2 text-sm">Language / 语言</label>
+                            <div className="flex space-x-4 mb-4">
+                                <button
+                                    onClick={() => onLanguageChange && onLanguageChange('en')}
+                                    className={`flex-1 py-2 text-sm border ${currentLanguage === 'en' ? 'bg-sickly-green text-black border-sickly-green' : 'border-metal-grey text-metal-grey hover:border-white'} transition-colors uppercase tracking-wider`}
+                                >
+                                    English
+                                </button>
+                                <button
+                                    onClick={() => onLanguageChange && onLanguageChange('zh')}
+                                    className={`flex-1 py-2 text-sm border ${currentLanguage === 'zh' ? 'bg-sickly-green text-black border-sickly-green' : 'border-metal-grey text-metal-grey hover:border-white'} transition-colors uppercase tracking-wider`}
+                                >
+                                    中文
+                                </button>
+                            </div>
+                        </div>
+
+                        <div>
+                            <label className="block text-hospital-white mb-2 text-sm">{t('settings.llm_provider')}</label>
                             <div className="flex space-x-4 mb-4">
                                 <button
                                     onClick={() => setProvider('gemini')}
@@ -182,7 +206,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
                         {provider === 'openai' && (
                             <div className="p-3 border border-metal-grey bg-black/50 mb-4">
-                                <label className="block text-hospital-white mb-1 text-xs">Target Endpoint (Base URL)</label>
+                                <label className="block text-hospital-white mb-1 text-xs">{t('settings.endpoint')}</label>
                                 <input
                                     type="text"
                                     value={baseUrl}
@@ -191,7 +215,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                                     className="w-full bg-black border border-metal-grey text-sickly-green p-2 text-sm focus:outline-none focus:border-sickly-green placeholder-gray-700 mb-2"
                                 />
 
-                                <label className="block text-hospital-white mb-1 text-xs">API Key</label>
+                                <label className="block text-hospital-white mb-1 text-xs">{t('settings.api_key')}</label>
                                 <input
                                     type="password"
                                     value={apiKey}
@@ -202,7 +226,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
                                 <div className="flex space-x-2 items-end">
                                     <div className="flex-1">
-                                        <label className="block text-hospital-white mb-1 text-xs">Model</label>
+                                        <label className="block text-hospital-white mb-1 text-xs">{t('settings.model')}</label>
                                         {availableModels.length > 0 ? (
                                             <select
                                                 value={chatModel}
@@ -229,7 +253,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                                         disabled={isFetchingModels || !baseUrl || !apiKey}
                                         className="px-3 py-2 border border-metal-grey text-metal-grey text-xs hover:text-white hover:border-white transition-colors uppercase h-[38px] disabled:opacity-50"
                                     >
-                                        {isFetchingModels ? "..." : "Fetch"}
+                                        {isFetchingModels ? "..." : t('settings.fetch')}
                                     </button>
                                 </div>
                             </div>
@@ -238,7 +262,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                         {provider === 'gemini' && (
                             <>
                                 <div>
-                                    <label className="block text-hospital-white mb-1 text-sm">Target Endpoint (Base URL)</label>
+                                    <label className="block text-hospital-white mb-1 text-sm">{t('settings.endpoint')}</label>
                                     <input
                                         type="text"
                                         value={baseUrl}
@@ -249,7 +273,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                                     <p className="text-xs text-metal-grey mt-1">Leave empty for default Google entry point.</p>
                                 </div>
                                 <div>
-                                    <label className="block text-hospital-white mb-1 text-sm">Access Token (API Key)</label>
+                                    <label className="block text-hospital-white mb-1 text-sm">{t('settings.api_key')}</label>
                                     <input
                                         type="password"
                                         value={apiKey}
@@ -264,7 +288,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
                     <div className="border-t border-metal-grey pt-4 mt-4">
                         <div className="flex items-center justify-between mb-3">
-                            <label className="block text-hospital-white text-sm">启用画面渲染</label>
+                            <label className="block text-hospital-white text-sm">{t('settings.enable_image')}</label>
                             <button
                                 onClick={() => setEnableImageGen(!enableImageGen)}
                                 className={`relative w-12 h-6 rounded-sm border transition-colors duration-200 ${enableImageGen
@@ -279,11 +303,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                             </button>
                         </div>
                         {!enableImageGen && (
-                            <p className="text-xs text-metal-grey mb-2 opacity-80">⚡ 已禁用图片生成，可节约 API 调用和 Token</p>
+                            <p className="text-xs text-metal-grey mb-2 opacity-80">{t('settings.image_disabled_hint')}</p>
                         )}
 
                         <div className={`transition-opacity duration-300 ${enableImageGen ? 'opacity-100' : 'opacity-40 pointer-events-none'}`}>
-                            <label className="block text-hospital-white mb-2 text-sm">Image Generation Provider</label>
+                            <label className="block text-hospital-white mb-2 text-sm">{t('settings.image_provider')}</label>
                             <div className="flex space-x-4 mb-4">
                                 <button
                                     onClick={() => setImageProvider('pollinations')}
@@ -301,7 +325,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
                             {imageProvider === 'pollinations' && (
                                 <div>
-                                    <label className="block text-hospital-white mb-1 text-sm">Pollinations 模型</label>
+                                    <label className="block text-hospital-white mb-1 text-sm">{t('settings.pollinations_model')}</label>
                                     <select
                                         value={pollinationsModel}
                                         onChange={(e) => setPollinationsModel(e.target.value)}
@@ -312,7 +336,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                                         ))}
                                     </select>
 
-                                    <label className="block text-hospital-white mb-1 text-sm">Pollinations API Key (可选)</label>
+                                    <label className="block text-hospital-white mb-1 text-sm">{t('settings.pollinations_key')}</label>
                                     <input
                                         type="password"
                                         value={pollinationsApiKey}
@@ -326,15 +350,15 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                                             disabled={imageTestStatus === 'testing'}
                                             className="text-xs border border-metal-grey text-metal-grey px-2 py-1 hover:text-white hover:border-white transition-colors uppercase tracking-wider disabled:opacity-50"
                                         >
-                                            {imageTestStatus === 'testing' ? 'Testing...' : 'Test Image'}
+                                            {imageTestStatus === 'testing' ? t('settings.testing') : t('settings.test_image')}
                                         </button>
                                     </div>
                                     {imageTestStatus !== 'idle' && (
                                         <div className={`text-xs mt-1 font-header tracking-widest text-right ${imageTestStatus === 'testing' ? 'text-yellow-500' :
                                             imageTestStatus === 'success' ? 'text-green-500' : 'text-red-500'
                                             }`}>
-                                            {imageTestStatus === 'success' && "IMAGE API OK"}
-                                            {imageTestStatus === 'error' && "IMAGE API FAILED"}
+                                            {imageTestStatus === 'success' && t('settings.success')}
+                                            {imageTestStatus === 'error' && t('settings.error')}
                                         </div>
                                     )}
                                 </div>
@@ -343,9 +367,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                             {imageProvider === 'openai' && (
                                 <div className="p-3 border border-metal-grey bg-black/50 mb-4">
                                     {provider === 'openai' && (
-                                        <p className="text-xs text-sickly-green mb-2 opacity-80">💡 留空则自动使用LLM的配置</p>
+                                        <p className="text-xs text-sickly-green mb-2 opacity-80">💡 Leave empty to use LLM config</p>
                                     )}
-                                    <label className="block text-hospital-white mb-1 text-xs">Image Endpoint (Base URL)</label>
+                                    <label className="block text-hospital-white mb-1 text-xs">{t('settings.endpoint')}</label>
                                     <input
                                         type="text"
                                         value={imageBaseUrl}
@@ -354,7 +378,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                                         className="w-full bg-black border border-metal-grey text-sickly-green p-2 text-sm focus:outline-none focus:border-sickly-green placeholder-gray-700 mb-2"
                                     />
 
-                                    <label className="block text-hospital-white mb-1 text-xs">Image API Key</label>
+                                    <label className="block text-hospital-white mb-1 text-xs">{t('settings.api_key')}</label>
                                     <input
                                         type="password"
                                         value={imageApiKey}
@@ -365,7 +389,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
                                     <div className="flex space-x-2 items-end">
                                         <div className="flex-1">
-                                            <label className="block text-hospital-white mb-1 text-xs">Model</label>
+                                            <label className="block text-hospital-white mb-1 text-xs">{t('settings.model')}</label>
                                             {availableImageModels.length > 0 ? (
                                                 <select
                                                     value={imageModel}
@@ -392,7 +416,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                                             disabled={isFetchingImageModels || !imageBaseUrl || !imageApiKey}
                                             className="px-3 py-2 border border-metal-grey text-metal-grey text-xs hover:text-white hover:border-white transition-colors uppercase h-[38px] disabled:opacity-50"
                                         >
-                                            {isFetchingImageModels ? "..." : "Fetch"}
+                                            {isFetchingImageModels ? "..." : t('settings.fetch')}
                                         </button>
                                     </div>
                                 </div>
@@ -405,18 +429,18 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                         <div className={`text-xs mt-4 font-header tracking-widest text-center ${testStatus === 'testing' ? 'text-yellow-500' :
                             testStatus === 'success' ? 'text-green-500' : 'text-red-500'
                             }`}>
-                            {testStatus === 'testing' && "TESTING CONNECTION..."}
-                            {testStatus === 'success' && "CONNECTION VERIFIED"}
-                            {testStatus === 'error' && "CONNECTION FAILED"}
+                            {testStatus === 'testing' && t('settings.testing')}
+                            {testStatus === 'success' && t('settings.success')}
+                            {testStatus === 'error' && t('settings.error')}
                         </div>
                     )}
 
                     {/* Game Configuration Section */}
                     <div className="border-t border-metal-grey pt-4 mt-4">
-                        <h3 className="text-hospital-white text-sm font-header uppercase tracking-wider mb-3">游戏参数</h3>
+                        <h3 className="text-hospital-white text-sm font-header uppercase tracking-wider mb-3">{t('settings.game_params')}</h3>
 
                         {/* Difficulty Presets */}
-                        <label className="block text-hospital-white mb-2 text-xs">难度预设</label>
+                        <label className="block text-hospital-white mb-2 text-xs">{t('settings.difficulty_preset')}</label>
                         <div className="flex space-x-2 mb-4">
                             {(Object.keys(DIFFICULTY_PRESETS) as DifficultyPreset[]).map(preset => {
                                 const isActive = localGameConfig.maxTurns === DIFFICULTY_PRESETS[preset].maxTurns &&
@@ -438,7 +462,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
                         {/* Max Turns Slider */}
                         <div className="mb-3">
-                            <label className="block text-hospital-white mb-1 text-xs">目标结束回合: <span className="text-sickly-green">{localGameConfig.maxTurns}</span></label>
+                            <label className="block text-hospital-white mb-1 text-xs">{t('settings.target_turns')}: <span className="text-sickly-green">{localGameConfig.maxTurns}</span></label>
                             <input
                                 type="range"
                                 min="10"
@@ -456,10 +480,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
                         {/* Penalty Summary */}
                         <div className="bg-black/50 border border-metal-grey p-2 text-[10px] text-metal-grey space-y-0.5">
-                            <div className="flex justify-between"><span>轻微冒险惩罚</span><span className="text-yellow-500">{localGameConfig.sanityPenaltyLight}</span></div>
-                            <div className="flex justify-between"><span>违反规则惩罚</span><span className="text-orange-500">{localGameConfig.sanityPenaltyRule}</span></div>
-                            <div className="flex justify-between"><span>严重违规惩罚</span><span className="text-red-500">{localGameConfig.sanityPenaltyFatal}</span></div>
-                            <div className="flex justify-between"><span>安全选项上限</span><span>{Math.floor(localGameConfig.safeChoiceMaxRatio * 100)}%</span></div>
+                            <div className="flex justify-between"><span>{t('settings.penalty_light')}</span><span className="text-yellow-500">{localGameConfig.sanityPenaltyLight}</span></div>
+                            <div className="flex justify-between"><span>{t('settings.penalty_rule')}</span><span className="text-orange-500">{localGameConfig.sanityPenaltyRule}</span></div>
+                            <div className="flex justify-between"><span>{t('settings.penalty_fatal')}</span><span className="text-red-500">{localGameConfig.sanityPenaltyFatal}</span></div>
+                            <div className="flex justify-between"><span>{t('settings.safe_max')}</span><span>{Math.floor(localGameConfig.safeChoiceMaxRatio * 100)}%</span></div>
                         </div>
                     </div>
                 </div>
@@ -478,13 +502,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                             onClick={onClose}
                             className="px-4 py-2 text-metal-grey hover:text-hospital-white hover:bg-white/5 transition-colors uppercase text-sm tracking-wider"
                         >
-                            Cancel
+                            {t('settings.cancel')}
                         </button>
                         <button
                             onClick={handleSave}
                             className="px-6 py-2 bg-sickly-green text-black font-bold uppercase tracking-widest hover:bg-hospital-white hover:shadow-[0_0_15px_rgba(74,93,78,0.8)] transition-all border border-transparent hover:border-sickly-green"
                         >
-                            Confirm
+                            {t('settings.confirm')}
                         </button>
                     </div>
                 </div>
