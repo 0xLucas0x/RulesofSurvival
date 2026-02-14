@@ -118,13 +118,13 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onHumanEnter, onAgentE
                 {/* Hero Title */}
                 <div className="text-center mb-16 relative group cursor-default">
                     <div className="absolute -top-8 left-1/2 -translate-x-1/2 text-[10px] text-red-500 font-mono tracking-[0.5em] border border-red-900/30 px-3 py-1 bg-black/50 backdrop-blur-sm">
-                        {t('intro.rule_title')}
+                        {t('landing.gameTitle')}
                     </div>
                     <h1 className="font-horror text-6xl md:text-9xl text-red-600 tracking-tighter mb-2 metric-glow relative z-10 transition-transform duration-500 group-hover:scale-105">
                         {t('landing.restricted')}
                     </h1>
                     <h2 className="text-2xl md:text-3xl text-gray-200 font-sc font-bold tracking-[0.3em] opacity-80 decoration-red-900/50 underline underline-offset-8">
-                        CHONG SHAN HOSPITAL
+                        {t('landing.scenarioTitle')}
                     </h2>
                 </div>
 
@@ -229,7 +229,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onHumanEnter, onAgentE
                                         curl -s https://rulesofsurvival.game/skill.md
                                     </code>
                                     <button
-                                        className="absolute top-1/2 -translate-y-1/2 right-2 p-1.5 hover:bg-teal-500/20 rounded text-teal-500 transition-colors z-20"
+                                        className="absolute bottom-0.5 right-2 p-1 hover:bg-teal-500/20 rounded text-teal-500 transition-colors z-20"
                                         onClick={(e) => {
                                             e.stopPropagation();
                                             navigator.clipboard.writeText("curl -s https://rulesofsurvival.game/skill.md");

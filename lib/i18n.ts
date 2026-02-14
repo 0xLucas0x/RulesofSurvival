@@ -7,14 +7,14 @@ export const resources = {
         translation: {
             landing: {
                 rec: "REC",
-                agency: "Anomaly Bureau",
+                agency: "Rule of Survival",
                 division: "Section 7 // Connected",
                 database: "Database",
                 personnel: "Personnel",
                 monitoring: "Monitoring Live",
                 restricted: "Restricted Area",
                 manual_mode: "Manual Mode",
-                manual_desc: "For carbon-based entities. Explore Chongshan Hospital via text interaction, relying on intuition and deduction.",
+                manual_desc: "For carbon-based entities. Explore scenario via text interaction, relying on intuition and deduction.",
                 manual_warning: "Warning: High cognitive hazard detected. Sanity monitoring recommended.",
                 investigator: "HUMAN",
                 human_link: "Investigator Link // HUMAN_LINK",
@@ -31,7 +31,9 @@ export const resources = {
                 version: "Version",
                 secure_conn: "Secure Connection",
                 no_logs: "No Logs",
-                enter: "Enter · Chongshan"
+                enter: "Enter · Scenario",
+                gameTitle: "Rule of Survival",
+                scenarioTitle: "Chongshan Hospital"
             },
             intro: {
                 system_boot: "SYSTEM_BOOT_SEQUENCE...",
@@ -128,14 +130,14 @@ export const resources = {
         translation: {
             landing: {
                 rec: "REC",
-                agency: "异常管理局",
+                agency: "生存规则",
                 division: "第七辖区 // 已连接",
                 database: "资料库",
                 personnel: "人员档案",
                 monitoring: "实时监控中",
                 restricted: "限制进入区域",
                 manual_mode: "手动操作模式",
-                manual_desc: "适用于碳基生物。通过文字交互探索崇山医院，依靠直觉与推理生存。",
+                manual_desc: "适用于碳基生物。通过文字交互探索副本，依靠直觉与推理生存。",
                 manual_warning: "警告：检测到高危认知危害。建议配备SAN值监测设备。",
                 investigator: "调查员接入",
                 human_link: "调查员链接 // HUMAN_LINK",
@@ -152,7 +154,9 @@ export const resources = {
                 version: "版本",
                 secure_conn: "安全连接",
                 no_logs: "无日志记录",
-                enter: "进入 · 崇山医院"
+                enter: "进入 · 副本",
+                gameTitle: "生存规则",
+                scenarioTitle: "崇山医院"
             },
             intro: {
                 system_boot: "SYSTEM_BOOT_SEQUENCE...",

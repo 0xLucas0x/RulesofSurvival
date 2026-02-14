@@ -3,7 +3,7 @@ import type { ReactNode } from 'react';
 import './globals.css';
 
 export const metadata: Metadata = {
-  title: '崇山医院 | SANATORIUM_SYS.v0.9',
+  title: 'Rule of Survival | ANOMALY_SYS.v0.9',
   description: 'Rules Horror text adventure game',
 };
 
