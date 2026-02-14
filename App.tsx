@@ -1,244 +1,431 @@
 'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
-import './lib/i18n'; // Initialize i18n
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { useDynamicContext } from '@dynamic-labs/sdk-react-core';
+import { SiweMessage } from 'siwe';
+import './lib/i18n';
 import { useTranslation } from 'react-i18next';
-import { GameState, Choice, GeminiResponse } from './types';
+import { AuthUser, Choice, GameState, LandingStats, RunSummary } from './types';
 import { INITIAL_STATE } from './constants';
-import { GameConfig, DEFAULT_GAME_CONFIG, DifficultyPreset } from './gameConfig';
-import { generateNextTurn } from './services/geminiService';
 import { Header } from './components/Header';
 import { RuleBook } from './components/RuleBook';
 import { MainDisplay } from './components/MainDisplay';
 import { CRTLayer } from './components/CRTLayer';
 import { EvidenceBoard } from './components/EvidenceBoard';
-import { SettingsModal } from './components/SettingsModal';
 import { GameIntro } from './components/GameIntro';
 import { LandingPage } from './components/LandingPage';
+import {
+  fetchAuthUser,
+  fetchLandingStats,
+  fetchSiweNonce,
+  getCurrentRun,
+  logoutAuth,
+  startRun,
+  submitRunTurn,
+  verifySiweLogin,
+} from './services/geminiService';
 
-const App: React.FC = () => {
+type WalletBridge = Pick<
+  ReturnType<typeof useDynamicContext>,
+  'primaryWallet' | 'setShowAuthFlow' | 'handleLogOut' | 'sdkHasLoaded'
+>;
+
+const hasDynamicEnv = Boolean(process.env.NEXT_PUBLIC_DYNAMIC_ENV_ID);
+
+const buildState = (state: Partial<GameState>): GameState => {
+  return {
+    ...INITIAL_STATE,
+    ...state,
+    isLoading: false,
+  };
+};
+
+const AppShell: React.FC<{ wallet: WalletBridge }> = ({ wallet }) => {
   const { t, i18n } = useTranslation();
-  const [gameState, setGameState] = useState<GameState>(INITIAL_STATE);
-  const [history, setHistory] = useState<string[]>([]);
+  const { primaryWallet, setShowAuthFlow, handleLogOut, sdkHasLoaded } = wallet;
+
+  const [authUser, setAuthUser] = useState<AuthUser | null>(null);
+  const [authLoading, setAuthLoading] = useState(true);
+  const [walletAuthLoading, setWalletAuthLoading] = useState(false);
+  const [authError, setAuthError] = useState<string | null>(null);
+
+  const [gameState, setGameState] = useState<GameState>(buildState(INITIAL_STATE));
+  const [runSummary, setRunSummary] = useState<RunSummary | null>(null);
   const [showEvidence, setShowEvidence] = useState(false);
   const [hasNewEvidence, setHasNewEvidence] = useState(false);
   const [showLanding, setShowLanding] = useState(true);
+  const [showAuthGate, setShowAuthGate] = useState(false);
   const [showIntro, setShowIntro] = useState(false);
-  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-  const [apiKey, setApiKey] = useState("");
-  const [baseUrl, setBaseUrl] = useState("");
-  const [pollinationsApiKey, setPollinationsApiKey] = useState("");
-  const [provider, setProvider] = useState<'gemini' | 'openai'>('gemini');
-  const [chatModel, setChatModel] = useState("");
+  const [imageUnlocked, setImageUnlocked] = useState(true);
+  const [landingStats, setLandingStats] = useState<LandingStats | null>(null);
+  const [pendingEntry, setPendingEntry] = useState<'human' | null>(null);
+  const [isHumanEntryLoading, setIsHumanEntryLoading] = useState(false);
 
-  const [imageProvider, setImageProvider] = useState<'pollinations' | 'openai'>('pollinations');
-  const [pollinationsModel, setPollinationsModel] = useState('flux');
-  const [imageModel, setImageModel] = useState("");
-  const [imageBaseUrl, setImageBaseUrl] = useState("");
-  const [imageApiKey, setImageApiKey] = useState("");
-  const [enableImageGen, setEnableImageGen] = useState(true);
-  const [gameConfig, setGameConfig] = useState<GameConfig>(DEFAULT_GAME_CONFIG);
+  const bootstrappedRef = useRef(false);
+  const attemptedAutoLoginWalletRef = useRef<string | null>(null);
 
-  useEffect(() => {
-    const storedApiKey = localStorage.getItem("gemini_api_key");
-    const storedBaseUrl = localStorage.getItem("gemini_base_url");
-    const storedPollinationsKey = localStorage.getItem("pollinations_api_key");
-    const storedProvider = localStorage.getItem("llm_provider");
-    const storedModel = localStorage.getItem("llm_model");
+  const hydrateCurrentRun = useCallback(async (): Promise<boolean> => {
+    const current = await getCurrentRun();
+    if (!current.run) {
+      return false;
+    }
 
-    if (storedApiKey) setApiKey(storedApiKey);
-    if (storedBaseUrl) setBaseUrl(storedBaseUrl);
-    if (storedPollinationsKey) setPollinationsApiKey(storedPollinationsKey);
-    if (storedProvider) setProvider(storedProvider as 'gemini' | 'openai');
-    if (storedModel) setChatModel(storedModel);
+    setRunSummary(current.run.summary);
+    setGameState(
+      buildState({
+        ...current.run.state,
+        runId: current.run.summary.runId,
+        lastSyncedTurn: current.run.summary.turnNo,
+        isRecovering: false,
+      }),
+    );
+    return true;
+  }, []);
 
-    const storedImgProvider = localStorage.getItem("image_provider");
-    const storedPollModel = localStorage.getItem("pollinations_model");
-    const storedImgModel = localStorage.getItem("image_model");
-    const storedImgBase = localStorage.getItem("image_base_url");
-    const storedImgKey = localStorage.getItem("image_api_key");
+  const bootstrap = useCallback(async () => {
+    if (bootstrappedRef.current) {
+      return;
+    }
+    bootstrappedRef.current = true;
 
-    if (storedImgProvider) setImageProvider(storedImgProvider as 'pollinations' | 'openai');
-    if (storedPollModel) setPollinationsModel(storedPollModel);
-    if (storedImgModel) setImageModel(storedImgModel);
-    if (storedImgBase) setImageBaseUrl(storedImgBase);
-    if (storedImgKey) setImageApiKey(storedImgKey);
-
-    const storedEnableImageGen = localStorage.getItem("enable_image_gen");
-    if (storedEnableImageGen !== null) setEnableImageGen(storedEnableImageGen === 'true');
-
-    const storedGameConfig = localStorage.getItem("game_config");
-    if (storedGameConfig) {
-      try {
-        setGameConfig({ ...DEFAULT_GAME_CONFIG, ...JSON.parse(storedGameConfig) });
-      } catch (e) { /* ignore parse errors */ }
+    setAuthLoading(true);
+    try {
+      const user = await fetchAuthUser();
+      setAuthUser(user);
+    } finally {
+      setAuthLoading(false);
     }
   }, []);
 
-  const handleSaveSettings = (
-    key: string,
-    url: string,
-    pollKey: string,
-    newProvider: 'gemini' | 'openai',
-    newModel: string,
-    newImgProvider: 'pollinations' | 'openai',
-    newPollModel: string,
-    newImgModel: string,
-    newImgBase: string,
-    newImgKey: string,
-    newEnableImageGen: boolean,
-    newGameConfig: GameConfig
-  ) => {
-    setApiKey(key);
-    setBaseUrl(url);
-    setPollinationsApiKey(pollKey);
-    setProvider(newProvider);
-    setChatModel(newModel);
-    setImageProvider(newImgProvider);
-    setPollinationsModel(newPollModel);
-    setImageModel(newImgModel);
-    setImageBaseUrl(newImgBase);
-    setImageApiKey(newImgKey);
-    setEnableImageGen(newEnableImageGen);
-    setGameConfig(newGameConfig);
+  const loadLandingMetrics = useCallback(async () => {
+    try {
+      const stats = await fetchLandingStats();
+      setLandingStats(stats);
+    } catch {
+      setLandingStats(null);
+    }
+  }, []);
 
-    localStorage.setItem("gemini_api_key", key);
-    localStorage.setItem("gemini_base_url", url);
-    localStorage.setItem("pollinations_api_key", pollKey);
-    localStorage.setItem("llm_provider", newProvider);
-    localStorage.setItem("llm_model", newModel);
+  useEffect(() => {
+    void bootstrap();
+    void loadLandingMetrics();
+  }, [bootstrap, loadLandingMetrics]);
 
-    localStorage.setItem("image_provider", newImgProvider);
-    localStorage.setItem("pollinations_model", newPollModel);
-    localStorage.setItem("image_model", newImgModel);
-    localStorage.setItem("image_base_url", newImgBase);
-    localStorage.setItem("image_api_key", newImgKey);
-    localStorage.setItem("enable_image_gen", String(newEnableImageGen));
-    localStorage.setItem("game_config", JSON.stringify(newGameConfig));
-  };
+  const ensureActiveRun = useCallback(async (): Promise<RunSummary> => {
+    if (runSummary?.status === 'active') {
+      return runSummary;
+    }
 
-  // To avoid duplicate API calls in Strict Mode
-  const initializingRef = useRef(false);
+    const started = await startRun();
+    setRunSummary(started.summary);
+    setGameState(
+      buildState({
+        ...started.state,
+        runId: started.summary.runId,
+        lastSyncedTurn: started.summary.turnNo,
+      }),
+    );
+    if (!started.recovered) {
+      setAuthUser((prev) => (prev ? { ...prev, isFirstHumanEntry: false } : prev));
+    }
+    setImageUnlocked(true);
+    return started.summary;
+  }, [runSummary]);
 
-  const handleChoice = async (choice: Choice) => {
-    if (gameState.isLoading || gameState.isGameOver) return;
+  const prepareHumanEntry = useCallback(
+    async (user: AuthUser) => {
+      const restored = await hydrateCurrentRun();
 
-    // Optimistic UI update
-    setGameState(prev => ({ ...prev, isLoading: true }));
+      if (!restored) {
+        if (user.isFirstHumanEntry) {
+          setShowIntro(true);
+        } else {
+          await ensureActiveRun();
+          setShowIntro(false);
+        }
+      } else {
+        setShowIntro(false);
+      }
 
-    const newHistory = [...history, `Turn ${gameState.turnCount}: Location: ${gameState.location}. Narrative: ${gameState.narrative}. Choice Made: ${choice.text} (${choice.actionType})`];
-    setHistory(newHistory);
+      setShowAuthGate(false);
+      setShowLanding(false);
+      setPendingEntry(null);
+    },
+    [ensureActiveRun, hydrateCurrentRun],
+  );
+
+  const completeWalletLogin = useCallback(async () => {
+    if (!primaryWallet) {
+      setShowAuthFlow(true);
+      return;
+    }
+
+    const walletAddress = primaryWallet.address;
+    if (!walletAddress) {
+      setAuthError(t('auth.errors.no_wallet_address'));
+      return;
+    }
+
+    setAuthError(null);
+    setWalletAuthLoading(true);
 
     try {
-      // Pass current rules so AI knows what not to repeat
-      const response: GeminiResponse = await generateNextTurn(
-        newHistory,
-        choice.text,
-        gameState.rules,
-        apiKey,
-        baseUrl,
-        provider,
-        chatModel,
-        gameState.sanity,
-        gameState.inventory,
-        gameConfig
-      );
+      const { nonce, chainId } = await fetchSiweNonce();
+      const siwe = new SiweMessage({
+        domain: window.location.host,
+        address: walletAddress,
+        statement: 'Sign in to Rule of Survival',
+        uri: window.location.origin,
+        version: '1',
+        chainId,
+        nonce,
+      });
 
-      setGameState(prev => {
-        const newSanity = Math.max(0, Math.min(100, prev.sanity + response.sanity_change));
+      const message = siwe.prepareMessage();
+      const signature = await primaryWallet.signMessage(message);
+      if (!signature) {
+        throw new Error(t('auth.errors.signature_cancelled'));
+      }
 
-        // Handle new rules with MVP cap: normally max 1 per turn, allow up to 2 only in explicit bulk-discovery scenes
-        const incomingRules = response.new_rules || [];
-        const specialRuleDropKeywords = [
-          '完整守则',
-          '整页守则',
-          '规则汇编',
-          '值班手册',
-          '患者守则原件',
-          '公告栏整版'
-        ];
-        const isSpecialRuleDrop =
-          (choice.actionType === 'investigate' || choice.actionType === 'item') &&
-          specialRuleDropKeywords.some(keyword => response.narrative.includes(keyword));
-        const cappedIncomingRules = isSpecialRuleDrop
-          ? incomingRules.slice(0, 2)
-          : incomingRules.slice(0, 1);
-        const uniqueIncomingRules = cappedIncomingRules.filter(r => !prev.rules.includes(r));
-        const newRules = [...prev.rules, ...uniqueIncomingRules];
+      const user = await verifySiweLogin(message, signature);
+      setAuthUser(user);
+      if (pendingEntry === 'human') {
+        await prepareHumanEntry(user);
+      } else {
+        setShowAuthGate(false);
+        setPendingEntry(null);
+      }
+      await loadLandingMetrics();
+    } catch (error: any) {
+      setAuthError(error?.message || t('auth.errors.login_failed'));
+    } finally {
+      setWalletAuthLoading(false);
+    }
+  }, [loadLandingMetrics, pendingEntry, prepareHumanEntry, primaryWallet, setShowAuthFlow, t]);
 
-        // Handle new evidence
-        const incomingEvidence = response.new_evidence || [];
-        let newInventory = [...prev.inventory, ...incomingEvidence];
+  const handleConnectWallet = useCallback(async () => {
+    setAuthError(null);
 
-        // Handle consumed item (protective item used)
-        if (response.consumed_item_id) {
-          newInventory = newInventory.filter(item => item.id !== response.consumed_item_id);
-        }
+    if (!process.env.NEXT_PUBLIC_DYNAMIC_ENV_ID) {
+      setAuthError(t('auth.errors.dynamic_not_configured'));
+      return;
+    }
 
-        // Trigger notification if there is new evidence
-        if (incomingEvidence.length > 0) {
+    if (!sdkHasLoaded) {
+      setAuthError(t('auth.errors.provider_loading'));
+      return;
+    }
+
+    if (!primaryWallet) {
+      setShowAuthFlow(true);
+      return;
+    }
+
+    attemptedAutoLoginWalletRef.current = primaryWallet.address?.toLowerCase() ?? null;
+    await completeWalletLogin();
+  }, [completeWalletLogin, primaryWallet, sdkHasLoaded, setShowAuthFlow, t]);
+
+  useEffect(() => {
+    const walletAddress = primaryWallet?.address?.toLowerCase();
+    if (!walletAddress || !showAuthGate || authUser || pendingEntry !== 'human') {
+      return;
+    }
+    if (attemptedAutoLoginWalletRef.current === walletAddress) {
+      return;
+    }
+
+    attemptedAutoLoginWalletRef.current = walletAddress;
+    void completeWalletLogin();
+  }, [authUser, completeWalletLogin, pendingEntry, primaryWallet, showAuthGate]);
+
+  const handleLogout = useCallback(async () => {
+    await logoutAuth();
+    try {
+      await handleLogOut();
+    } catch (error) {
+      console.error('Dynamic wallet logout failed', error);
+    }
+    setAuthUser(null);
+    setRunSummary(null);
+    setGameState(buildState(INITIAL_STATE));
+    setShowLanding(true);
+    setShowAuthGate(false);
+    setShowIntro(false);
+    setPendingEntry(null);
+    attemptedAutoLoginWalletRef.current = null;
+  }, [handleLogOut]);
+
+  const startNarrative = useCallback(async () => {
+    if (!authUser) {
+      setShowAuthGate(true);
+      setPendingEntry('human');
+      return;
+    }
+    await ensureActiveRun();
+    setShowIntro(false);
+  }, [authUser, ensureActiveRun]);
+
+  const handleEnterHuman = useCallback(async () => {
+    if (isHumanEntryLoading) {
+      return;
+    }
+
+    setAuthError(null);
+    setPendingEntry('human');
+
+    if (!authUser) {
+      setShowLanding(false);
+      setShowAuthGate(true);
+      return;
+    }
+
+    setIsHumanEntryLoading(true);
+    try {
+      await prepareHumanEntry(authUser);
+    } catch (error: any) {
+      setAuthError(error?.message || t('auth.errors.login_failed'));
+      setPendingEntry(null);
+      setShowLanding(true);
+    } finally {
+      setIsHumanEntryLoading(false);
+    }
+  }, [authUser, isHumanEntryLoading, prepareHumanEntry, t]);
+
+  const handleChoice = useCallback(
+    async (choice: Choice) => {
+      if (gameState.isLoading || gameState.isGameOver) return;
+      if (!authUser) return;
+
+      const run = await ensureActiveRun();
+
+      setGameState((prev) => ({ ...prev, isLoading: true }));
+
+      try {
+        const result = await submitRunTurn(run.runId, choice);
+        const nextState = buildState({
+          ...result.state,
+          runId: run.runId,
+          lastSyncedTurn: result.state.turnCount,
+          isRecovering: false,
+        });
+
+        setGameState(nextState);
+        setImageUnlocked(result.imageUnlocked);
+
+        if (result.state.inventory.length > gameState.inventory.length) {
           setHasNewEvidence(true);
         }
 
-        const isGameOver = newSanity <= 0 || response.is_game_over;
-        const isVictory = !!response.is_victory;
-
-        return {
-          sanity: newSanity,
-          location: response.location_name || prev.location,
-          narrative: response.narrative,
-          imagePrompt: response.image_prompt_english,
-          choices: response.choices,
-          rules: newRules,
-          inventory: newInventory,
-          turnCount: prev.turnCount + 1,
-          isGameOver: isGameOver,
-          isVictory: isVictory,
-          isLoading: false
-        };
-      });
-
-    } catch (error) {
-      console.error("Game loop error", error);
-      setGameState(prev => ({ ...prev, isLoading: false, narrative: prev.narrative + "\n\n(系统连接不稳定，请重试...)" }));
-    }
-  };
+        setRunSummary((prev) => {
+          if (!prev) return prev;
+          return {
+            ...prev,
+            turnNo: nextState.turnCount,
+            status: nextState.isGameOver ? (nextState.isVictory ? 'completed' : 'failed') : 'active',
+            isVictory: nextState.isGameOver ? nextState.isVictory : prev.isVictory,
+          };
+        });
+      } catch (error) {
+        console.error('Turn submission failed', error);
+        setGameState((prev) => ({ ...prev, isLoading: false }));
+      }
+    },
+    [authUser, ensureActiveRun, gameState.inventory.length, gameState.isGameOver, gameState.isLoading],
+  );
 
   const handleOpenEvidence = () => {
     setShowEvidence(true);
-    setHasNewEvidence(false); // Clear notification on open
+    setHasNewEvidence(false);
   };
+
+  if (showLanding) {
+    return (
+      <LandingPage
+        onHumanEnter={() => {
+          void handleEnterHuman();
+        }}
+        isHumanEntering={isHumanEntryLoading}
+        onAgentEnter={() => {
+          if (authUser?.role === 'admin') {
+            window.location.href = '/admin';
+            return;
+          }
+          window.alert(t('auth.admin_only'));
+        }}
+        currentLanguage={(i18n.resolvedLanguage || i18n.language).startsWith('en') ? 'en' : 'zh'}
+        onLanguageChange={(lang) => i18n.changeLanguage(lang)}
+        stats={landingStats}
+      />
+    );
+  }
+
+  if (showAuthGate && !authUser) {
+    return (
+      <div className="h-screen w-screen bg-black text-gray-200 flex flex-col items-center justify-center gap-6 px-6">
+        <h1 className="text-4xl text-red-600 font-header tracking-[0.2em]">{t('landing.gameTitle')}</h1>
+        <p className="text-gray-400 text-center max-w-xl">{t('auth.connect_hint')}</p>
+        <button
+          onClick={handleConnectWallet}
+          disabled={authLoading || walletAuthLoading || (hasDynamicEnv && !sdkHasLoaded)}
+          className="px-6 py-3 bg-red-900 hover:bg-red-700 border border-red-500 uppercase tracking-[0.2em] font-header"
+        >
+          {authLoading
+            ? t('auth.checking_session')
+            : walletAuthLoading
+              ? t('auth.verifying_wallet')
+              : hasDynamicEnv && !sdkHasLoaded
+                ? t('auth.loading_provider')
+                : t('auth.connect_wallet')}
+        </button>
+        <button
+          onClick={() => {
+            setAuthError(null);
+            setShowAuthGate(false);
+            setPendingEntry(null);
+            setShowLanding(true);
+          }}
+          className="px-6 py-2 bg-black hover:bg-gray-900 border border-gray-700 uppercase tracking-[0.2em] font-header"
+        >
+          {t('auth.back')}
+        </button>
+        {authError && <p className="text-red-400 text-sm">{authError}</p>}
+      </div>
+    );
+  }
+
+  if (!authUser) {
+    return (
+      <div className="h-screen w-screen bg-black text-gray-200 flex items-center justify-center font-header tracking-widest">
+        {t('auth.session_lost')}
+      </div>
+    );
+  }
 
   return (
     <div className="h-screen w-screen overflow-hidden flex flex-col font-body bg-black text-gray-200">
-      {showLanding && (
-        <LandingPage
-          onHumanEnter={() => {
-            setShowLanding(false);
-            setShowIntro(true);
-          }}
-          onAgentEnter={() => {
-            // "Agent" implies automated tools, maybe just open the app in a "dev" mode?
-            // User request just said "provide entry/getting started instructions".
-            // For now, let's just enter the game, or maybe show an alert "API Access Enabled"?
-            setShowLanding(false);
-            setShowIntro(true);
-            setIsSettingsOpen(true); // Open settings for "Agent" to configure API keys
-          }}
-          currentLanguage={i18n.language}
-          onLanguageChange={(lang) => i18n.changeLanguage(lang)}
-        />
-      )}
-      {!showLanding && showIntro && <GameIntro onStart={() => setShowIntro(false)} />}
-      {!showLanding && <CRTLayer sanity={gameState.sanity} />}
+      {showIntro && <GameIntro onStart={() => void startNarrative()} />}
+      <CRTLayer sanity={gameState.sanity} />
 
       <Header
         sanity={gameState.sanity}
         location={gameState.location}
         onOpenEvidence={handleOpenEvidence}
-        onOpenSettings={() => setIsSettingsOpen(true)}
+        onOpenSettings={() => {
+          if (authUser.role === 'admin') {
+            window.location.href = '/admin';
+          }
+        }}
+        onLogout={() => void handleLogout()}
+        showSettings={authUser.role === 'admin'}
+        walletAddress={authUser.walletAddress}
         hasNewEvidence={hasNewEvidence}
       />
+
+      {!imageUnlocked && (
+        <div className="z-30 bg-yellow-900/70 text-yellow-100 text-xs font-header tracking-widest px-4 py-2 text-center border-b border-yellow-700">
+          IMAGE LOCKED: whitelist / NFT / token requirement not met
+        </div>
+      )}
 
       <main className="flex-1 flex overflow-hidden z-20 relative">
         <RuleBook rules={gameState.rules} />
@@ -250,16 +437,8 @@ const App: React.FC = () => {
           onMakeChoice={handleChoice}
           isGameOver={gameState.isGameOver}
           isVictory={gameState.isVictory}
-          pollinationsApiKey={pollinationsApiKey}
-          pollinationsModel={pollinationsModel}
-          imageProvider={imageProvider}
-          imageModel={imageModel}
-          imageBaseUrl={imageBaseUrl}
-          imageApiKey={imageApiKey}
-          llmProvider={provider}
-          llmBaseUrl={baseUrl}
-          llmApiKey={apiKey}
-          enableImageGen={enableImageGen}
+          imageProvider="pollinations"
+          enableImageGen
         />
       </main>
 
@@ -270,27 +449,6 @@ const App: React.FC = () => {
         turnCount={gameState.turnCount}
       />
 
-      <SettingsModal
-        isOpen={isSettingsOpen}
-        onClose={() => setIsSettingsOpen(false)}
-        apiKey={apiKey}
-        baseUrl={baseUrl}
-        pollinationsApiKey={pollinationsApiKey}
-        pollinationsModel={pollinationsModel}
-        provider={provider}
-        chatModel={chatModel}
-        imageProvider={imageProvider}
-        imageModel={imageModel}
-        imageBaseUrl={imageBaseUrl}
-        imageApiKey={imageApiKey}
-        enableImageGen={enableImageGen}
-        gameConfig={gameConfig}
-        onSave={handleSaveSettings}
-        currentLanguage={i18n.language}
-        onLanguageChange={(lang) => i18n.changeLanguage(lang)}
-      />
-
-      {/* Mobile Rule Button (Optional, simple overlay implementation for mobile) */}
       <div className="lg:hidden fixed top-20 right-4 z-40">
         <details className="relative">
           <summary className="list-none bg-yellow-600 text-black px-3 py-1 rounded font-header text-sm cursor-pointer border border-yellow-800 shadow-lg">
@@ -299,13 +457,53 @@ const App: React.FC = () => {
           <div className="absolute right-0 mt-2 w-64 bg-[#dcdcdc] p-4 text-black rounded shadow-xl border-4 border-metal-dark max-h-96 overflow-y-auto">
             <h3 className="font-header font-bold text-center mb-2 text-red-800 underline">{t('landing.rule_title')}</h3>
             <ul className="space-y-2 font-hand text-lg">
-              {gameState.rules.map((r, i) => <li key={i}>{i + 1}. {r}</li>)}
+              {gameState.rules.map((r, i) => (
+                <li key={i}>
+                  {i + 1}. {r}
+                </li>
+              ))}
             </ul>
           </div>
         </details>
       </div>
     </div>
   );
+};
+
+const AppWithDynamic: React.FC = () => {
+  const { primaryWallet, setShowAuthFlow, handleLogOut, sdkHasLoaded } = useDynamicContext();
+  return (
+    <AppShell
+      wallet={{
+        primaryWallet,
+        setShowAuthFlow,
+        handleLogOut,
+        sdkHasLoaded,
+      }}
+    />
+  );
+};
+
+const AppWithoutDynamic: React.FC = () => {
+  const noOpShowAuthFlow = (() => undefined) as WalletBridge['setShowAuthFlow'];
+
+  return (
+    <AppShell
+      wallet={{
+        primaryWallet: null,
+        setShowAuthFlow: noOpShowAuthFlow,
+        handleLogOut: async () => undefined,
+        sdkHasLoaded: false,
+      }}
+    />
+  );
+};
+
+const App: React.FC = () => {
+  if (!hasDynamicEnv) {
+    return <AppWithoutDynamic />;
+  }
+  return <AppWithDynamic />;
 };
 
 export default App;

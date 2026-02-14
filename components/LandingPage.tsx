@@ -1,14 +1,24 @@
 import React, { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
+import type { LandingStats } from '../types';
 
 interface LandingPageProps {
     onHumanEnter: () => void;
+    isHumanEntering?: boolean;
     onAgentEnter: () => void;
     currentLanguage?: string;
     onLanguageChange?: (lang: string) => void;
+    stats?: LandingStats | null;
 }
 
-export const LandingPage: React.FC<LandingPageProps> = ({ onHumanEnter, onAgentEnter, currentLanguage = 'en', onLanguageChange }) => {
+export const LandingPage: React.FC<LandingPageProps> = ({
+    onHumanEnter,
+    isHumanEntering = false,
+    onAgentEnter,
+    currentLanguage = 'en',
+    onLanguageChange,
+    stats,
+}) => {
     const { t } = useTranslation();
     const [hoveredSection, setHoveredSection] = useState<'human' | 'agent' | null>(null);
     const [currentTime, setCurrentTime] = useState('');
@@ -159,15 +169,25 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onHumanEnter, onAgentE
                         className={`
                     relative group cursor-pointer transition-all duration-500 ease-out
                     ${hoveredSection === 'agent' ? 'opacity-30 blur-sm scale-95' : 'opacity-100 scale-100'}
+                    ${isHumanEntering ? 'pointer-events-none opacity-70' : ''}
                 `}
                         onMouseEnter={() => setHoveredSection('human')}
                         onMouseLeave={() => setHoveredSection(null)}
-                        onClick={onHumanEnter}
+                        onClick={() => {
+                            if (!isHumanEntering) {
+                                onHumanEnter();
+                            }
+                        }}
                     >
                         <div className="hud-frame h-full p-8 bg-black/80 backdrop-blur-xl border-red-900/30 hover:bg-red-950/20 transition-all duration-300 group-hover:border-red-600 flex flex-col">
                             <div className="absolute top-4 right-4 text-red-600 opacity-20 group-hover:opacity-100 transition-opacity">
                                 <svg className="w-12 h-12" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M12 11c0 3.517-1.009 6.799-2.753 9.571m-3.44-2.04l.054-.09A13.916 13.916 0 008 11a4 0 118 0c0 1.017-.07 2.019-.203 3m-2.118 6.844A21.88 21.88 0 0015.171 17m3.839 1.132c.645-2.266.99-4.659.99-7.132A8 8 0 008 4.07M3 15.364c.64-1.319 1-2.8 1-4.364 0-1.457.2-2.85.564-4.142" />
+                                    <path
+                                        strokeLinecap="round"
+                                        strokeLinejoin="round"
+                                        strokeWidth={1}
+                                        d="M12 12a5 5 0 100-10 5 5 0 000 10zM3 21a9 9 0 0118 0"
+                                    />
                                 </svg>
                             </div>
                             <h3 className="text-3xl font-bold text-white mb-2 font-sc group-hover:text-red-500 transition-colors">
@@ -186,8 +206,8 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onHumanEnter, onAgentE
                             </div>
 
                             <div className="mt-6 flex items-center justify-between text-red-500 font-bold text-xs tracking-widest uppercase opacity-0 group-hover:opacity-100 transition-opacity transform translate-y-2 group-hover:translate-y-0">
-                                <span className="font-sc">{t('landing.init_seq')}</span>
-                                <span className="material-symbols-outlined text-sm">arrow_forward</span>
+                                <span className="font-sc">{isHumanEntering ? t('auth.checking_session') : t('landing.init_seq')}</span>
+                                <span className="material-symbols-outlined text-sm">{isHumanEntering ? 'hourglass_top' : 'arrow_forward'}</span>
                             </div>
                         </div>
                     </div>
@@ -253,11 +273,13 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onHumanEnter, onAgentE
                 <div className="mt-16 grid grid-cols-2 md:grid-cols-4 gap-4 w-full max-w-4xl px-4 text-[10px] font-mono text-gray-500">
                     <div className="border border-white/10 p-2 bg-black/40">
                         <span className="block text-red-800 font-bold font-sc">{t('landing.area_status')}</span>
-                        <span className="text-red-500 font-sc">{t('landing.critical_failure')}</span>
+                        <span className="text-red-500 font-sc">
+                            {stats ? `${Math.round(stats.allTime.victoryRate * 100)}% ${t('landing.monitoring')}` : t('landing.critical_failure')}
+                        </span>
                     </div>
                     <div className="border border-white/10 p-2 bg-black/40">
                         <span className="block text-gray-600 font-bold font-sc">{t('landing.agents')}</span>
-                        <span className="text-gray-300 font-sc">1,402 {t('landing.online')}</span>
+                        <span className="text-gray-300 font-sc">{stats ? stats.allTime.users.toLocaleString() : '1,402'} {t('landing.online')}</span>
                     </div>
                     <div className="border border-white/10 p-2 bg-black/40">
                         <span className="block text-gray-600 font-bold font-sc">{t('landing.system_time')}</span>
@@ -265,7 +287,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onHumanEnter, onAgentE
                     </div>
                     <div className="border border-white/10 p-2 bg-black/40">
                         <span className="block text-gray-600 font-bold font-sc">{t('landing.version')}</span>
-                        <span className="text-gray-400">0.9.4.2_ALPHA</span>
+                        <span className="text-gray-400">{stats ? `RUNS:${stats.allTime.runsCompleted}` : '0.9.4.2_ALPHA'}</span>
                     </div>
                 </div>
             </main>

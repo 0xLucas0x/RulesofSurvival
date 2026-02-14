@@ -166,7 +166,7 @@ export const MainDisplay: React.FC<MainDisplayProps> = ({
   enableImageGen = true
 }) => {
   // Use Pollinations AI or OpenAI for dynamic image generation
-  const [imageUrl, setImageUrl] = useState<string>('');
+  const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [isImageLoading, setIsImageLoading] = useState(false);
   const { t } = useTranslation();
   const [clockText, setClockText] = useState('');
@@ -197,7 +197,7 @@ export const MainDisplay: React.FC<MainDisplayProps> = ({
     const fetchImage = async () => {
       // Skip image generation if disabled
       if (!enableImageGen) {
-        setImageUrl('');
+        setImageUrl(null);
         return;
       }
 
@@ -340,18 +340,20 @@ export const MainDisplay: React.FC<MainDisplayProps> = ({
 
       {/* --- Immersive Background Layer --- */}
       <div className="absolute inset-0 z-0 select-none">
-        <img
-          key={imagePrompt}
-          src={imageUrl}
-          alt="Environment"
-          className={`w-full h-full object-cover transition-all duration-700 ${isImageLoading
-            ? 'opacity-30 blur-[2px] scale-105 glitch-active'
-            : isLoading
-              ? 'opacity-40 blur-sm scale-105'
-              : 'opacity-60 scale-100'
-            }`}
-          style={{ filter: `contrast(120%) saturate(${isImageLoading ? '20%' : '40%'}) sepia(30%) ${isImageLoading ? 'hue-rotate(15deg)' : ''}` }}
-        />
+        {imageUrl && (
+          <img
+            key={imagePrompt}
+            src={imageUrl}
+            alt="Environment"
+            className={`w-full h-full object-cover transition-all duration-700 ${isImageLoading
+              ? 'opacity-30 blur-[2px] scale-105 glitch-active'
+              : isLoading
+                ? 'opacity-40 blur-sm scale-105'
+                : 'opacity-60 scale-100'
+              }`}
+            style={{ filter: `contrast(120%) saturate(${isImageLoading ? '20%' : '40%'}) sepia(30%) ${isImageLoading ? 'hue-rotate(15deg)' : ''}` }}
+          />
+        )}
         {/* Scanline overlay during image loading */}
         {isImageLoading && (
           <>
