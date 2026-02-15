@@ -189,7 +189,7 @@ export const EvidenceBoard: React.FC<EvidenceBoardProps> = ({ isOpen, onClose, i
               onClick={onClose}
               className="hover:bg-red-900/30 text-red-500 hover:text-red-400 px-2 py-0.5 rounded text-xs font-tech tracking-widest border border-transparent hover:border-red-500/50 transition-all"
             >
-              [ CLOSE_TERMINAL ]
+              {t('evidence.close_terminal')}
             </button>
           </div>
         </div>

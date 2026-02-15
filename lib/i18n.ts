@@ -76,7 +76,8 @@ export const resources = {
                 location: "Location",
                 evidence: "Records",
                 settings: "Settings",
-                rules: "Rules"
+                rules: "Rules",
+                image_locked: "⚠ SYSTEM_ALERT: Visual Feed Encrypted // ACCESS_DENIED"
             },
             actions: {
                 move: "Move",
@@ -121,7 +122,6 @@ export const resources = {
                 type_item: "Item",
                 type_photo: "Photo",
                 survival_record: "Survival Record",
-                return: "Return to Ward",
                 return: "Return to Ward",
                 status_line: "Status: Exploring // Evidence: {{count}}/12 Found",
                 close_terminal: "[ CLOSE_TERMINAL ]"
@@ -226,7 +226,8 @@ export const resources = {
                 location: "位置",
                 evidence: "病历残页",
                 settings: "设置",
-                rules: "守则"
+                rules: "守则",
+                image_locked: "⚠ 系统警报：视觉投射被拦截 // 访问拒绝"
             },
             actions: {
                 move: "移动",
@@ -271,7 +272,6 @@ export const resources = {
                 type_item: "物品",
                 type_photo: "照片",
                 survival_record: "生存记录",
-                return: "返回病房",
                 return: "返回病房",
                 status_line: "生存状态: 探索中 // 关键线索: {{count}}/12 已发现",
                 close_terminal: "[ 关闭终端 ]"
