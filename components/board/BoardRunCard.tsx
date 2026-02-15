@@ -137,18 +137,19 @@ export const BoardRunCard: React.FC<BoardRunCardProps> = ({ run, index, lang, se
       ].join(' ')}
       onClick={() => onSelect?.(run.runId)}
     >
-      <div className="absolute right-2 top-2 z-20">
-        <span className={`inline-flex rounded px-2 py-0.5 text-[10px] font-bold tracking-wider ${tone.badge}`}>
-          {tone.badgeLabel}
-        </span>
-      </div>
-
       <div className={`flex items-center justify-between border-b border-slate-700/60 bg-gradient-to-r ${tone.header} px-4 py-3`}>
-        <div className="flex items-center gap-2">
-          <span className="material-symbols-outlined text-sm text-slate-300">{profile === 'offline' ? 'wifi_off' : 'radar'}</span>
-          <h3 className="text-sm font-bold tracking-[0.14em] text-white">{formatActor(run.actorType)}_{run.walletMasked}</h3>
+        <div className="flex items-center gap-2 min-w-0 pr-2">
+          <span className="material-symbols-outlined text-sm text-slate-300 shrink-0">{profile === 'offline' ? 'wifi_off' : 'radar'}</span>
+          <h3 className="text-sm font-bold tracking-[0.14em] text-white truncate" title={`${formatActor(run.actorType)}_${run.walletMasked}`}>
+            {formatActor(run.actorType)}_{run.walletMasked}
+          </h3>
         </div>
-        <span className="font-mono text-[10px] text-slate-400">ID: #{run.runId.slice(-6).toUpperCase()}</span>
+        <div className="flex items-center gap-2 shrink-0">
+          <span className={`inline-flex rounded px-2 py-0.5 text-[10px] font-bold tracking-wider ${tone.badge}`}>
+            {tone.badgeLabel}
+          </span>
+          <span className="font-mono text-[10px] text-slate-400">#{run.runId.slice(-6).toUpperCase()}</span>
+        </div>
       </div>
 
       <div className="relative h-44 overflow-hidden border-b border-slate-700/60 bg-black">
