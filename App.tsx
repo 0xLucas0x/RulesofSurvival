@@ -427,8 +427,7 @@ const AppShell: React.FC<{ wallet: WalletBridge }> = ({ wallet }) => {
 
       {!imageUnlocked && (
         <div className="z-30 bg-red-950/90 text-red-500 text-xs font-tech tracking-[0.2em] px-4 py-2 text-center border-b border-red-500 shadow-[0_0_10px_rgba(220,38,38,0.5)] animate-pulse">
-          <span className="mr-2">⚠ SYSTEM_ALERT:</span>
-          IMAGE_locked // WHITELIST_REQUIRED // TOKEN_MISSING
+          {t("hud.image_locked")}
         </div>
       )}
 
