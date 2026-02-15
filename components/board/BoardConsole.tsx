@@ -433,11 +433,10 @@ export const BoardConsole = () => {
                 <button
                   key={run.runId}
                   onClick={() => setSelectedRunId(run.runId)}
-                  className={`w-full rounded border px-3 py-2 text-left text-xs transition-colors ${
-                    selectedRunId === run.runId
+                  className={`w-full rounded border px-3 py-2 text-left text-xs transition-colors ${selectedRunId === run.runId
                       ? 'border-red-500 bg-red-500/15 text-red-200'
                       : 'border-slate-700 bg-black/40 text-slate-300 hover:border-red-500/40'
-                  }`}
+                    }`}
                 >
                   <div className="flex items-center justify-between">
                     <span className="font-mono">{run.walletMasked}</span>
@@ -467,13 +466,13 @@ export const BoardConsole = () => {
 
         <main className="flex-1 overflow-y-auto bg-[#0d0d0d] p-6 custom-scrollbar">
           {isLoading ? (
-            <div className="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-3">
-              {Array.from({ length: 6 }).map((_, idx) => (
-                <div key={idx} className="h-[390px] animate-pulse rounded border border-slate-800 bg-[#1a1a1a]" />
+            <div className="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+              {Array.from({ length: 8 }).map((_, idx) => (
+                <div key={idx} className="h-[410px] animate-pulse rounded border border-slate-800 bg-[#1a1a1a]" />
               ))}
             </div>
           ) : (
-            <div className="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-3">
+            <div className="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
               {filteredRuns.map((run, idx) => (
                 <BoardRunCard
                   key={run.runId}
@@ -497,11 +496,10 @@ export const BoardConsole = () => {
           ].map(([icon, label], idx) => (
             <button
               key={icon}
-              className={`flex h-10 w-10 items-center justify-center rounded border bg-slate-800 transition-colors ${
-                idx === 0
+              className={`flex h-10 w-10 items-center justify-center rounded border bg-slate-800 transition-colors ${idx === 0
                   ? 'border-red-500/60 text-red-400 hover:bg-red-500/20'
                   : 'border-slate-700 text-slate-400 hover:border-cyan-500/50 hover:text-cyan-300'
-              }`}
+                }`}
               title={label}
             >
               <span className="material-symbols-outlined text-lg">{icon}</span>
