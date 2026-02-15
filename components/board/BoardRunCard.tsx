@@ -200,11 +200,7 @@ export const BoardRunCard: React.FC<BoardRunCardProps> = ({ run, index, lang, se
             </div>
           </div>
 
-          <div className="grid grid-cols-3 gap-2 text-[11px] font-mono text-slate-400">
-            <div className="rounded border border-slate-700 bg-black/65 px-2 py-1 text-center">
-              <div className="text-[10px] text-slate-500">{lang === 'zh' ? '天数' : 'DAY'}</div>
-              <div className="text-white">{run.dayNo}</div>
-            </div>
+          <div className="grid grid-cols-2 gap-2 text-[11px] font-mono text-slate-400">
             <div className="rounded border border-slate-700 bg-black/65 px-2 py-1 text-center">
               <div className="text-[10px] text-slate-500">{lang === 'zh' ? '回合' : 'TURN'}</div>
               <div className="text-white">{run.turnNo}</div>
