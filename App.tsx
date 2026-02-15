@@ -419,14 +419,16 @@ const AppShell: React.FC<{ wallet: WalletBridge }> = ({ wallet }) => {
           }
         }}
         onLogout={() => void handleLogout()}
-        showSettings={authUser.role === 'admin'}
+        // showSettings={authUser.role === 'admin'}
+        showSettings={false}
         walletAddress={authUser.walletAddress}
         hasNewEvidence={hasNewEvidence}
       />
 
       {!imageUnlocked && (
-        <div className="z-30 bg-yellow-900/70 text-yellow-100 text-xs font-header tracking-widest px-4 py-2 text-center border-b border-yellow-700">
-          IMAGE LOCKED: whitelist / NFT / token requirement not met
+        <div className="z-30 bg-red-950/90 text-red-500 text-xs font-tech tracking-[0.2em] px-4 py-2 text-center border-b border-red-500 shadow-[0_0_10px_rgba(220,38,38,0.5)] animate-pulse">
+          <span className="mr-2">⚠ SYSTEM_ALERT:</span>
+          IMAGE_locked // WHITELIST_REQUIRED // TOKEN_MISSING
         </div>
       )}
 
@@ -453,19 +455,24 @@ const AppShell: React.FC<{ wallet: WalletBridge }> = ({ wallet }) => {
       />
 
       <div className="lg:hidden fixed top-20 right-4 z-40">
-        <details className="relative">
-          <summary className="list-none bg-yellow-600 text-black px-3 py-1 rounded font-header text-sm cursor-pointer border border-yellow-800 shadow-lg">
+        <details className="relative group">
+          <summary className="list-none bg-black/90 text-red-500 px-3 py-1 rounded font-tech text-xs tracking-widest cursor-pointer border border-red-900/50 hover:border-red-500 shadow-lg backdrop-blur-md transition-all uppercase flex items-center gap-2">
+            <span className="material-symbols-outlined text-sm">local_hospital</span>
             {t('hud.rules')}
           </summary>
-          <div className="absolute right-0 mt-2 w-64 bg-[#dcdcdc] p-4 text-black rounded shadow-xl border-4 border-metal-dark max-h-96 overflow-y-auto">
-            <h3 className="font-header font-bold text-center mb-2 text-red-800 underline">{t('landing.rule_title')}</h3>
-            <ul className="space-y-2 font-hand text-lg">
+          <div className="absolute right-0 mt-2 w-72 bg-black/95 p-4 text-gray-300 rounded shadow-[0_0_20px_rgba(0,0,0,0.8)] border border-red-900/50 max-h-[60vh] overflow-y-auto backdrop-blur-xl">
+            <h3 className="font-header font-bold text-center mb-4 text-red-500 tracking-[0.2em] border-b border-red-900/30 pb-2">{t('landing.rule_title')}</h3>
+            <ul className="space-y-3 font-hand text-sm md:text-base">
               {gameState.rules.map((r, i) => (
-                <li key={i}>
-                  {i + 1}. {r}
+                <li key={i} className="flex gap-2">
+                  <span className="text-red-600 font-bold">{i + 1}.</span>
+                  <span className="text-gray-400">{r}</span>
                 </li>
               ))}
             </ul>
+            <div className="mt-4 pt-2 border-t border-red-900/20 text-[10px] font-mono text-red-900/50 text-center tracking-widest uppercase">
+              Restricted File // Do Not Distribute
+            </div>
           </div>
         </details>
       </div>

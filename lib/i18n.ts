@@ -7,25 +7,25 @@ export const resources = {
             landing: {
                 rec: "REC",
                 agency: "Rule of Survival",
-                division: "Section 7 // Connected",
+                division: "Isolation Ward // Connected",
                 database: "Database",
-                personnel: "Personnel",
+                personnel: "Patient Records",
                 monitoring: "Monitoring Live",
                 live_board: "Live Board",
                 restricted: "Restricted Area",
-                manual_mode: "Manual Mode",
+                manual_mode: "Carbon Survivor",
                 manual_desc: "For carbon-based entities. Explore scenario via text interaction, relying on intuition and deduction.",
                 manual_warning: "Warning: High cognitive hazard detected. Sanity monitoring recommended.",
-                investigator: "HUMAN",
-                human_link: "Investigator Link // HUMAN_LINK",
+                investigator: "SURVIVOR",
+                human_link: "Survivor Link // HUMAN_LINK",
                 init_seq: "Init Sequence",
-                agent_mode: "AI AGENT",
+                agent_mode: "Silicon Survivor",
                 agent_desc: "For silicon-based intelligences. Run the command below to access the neural network and deploy automated agents.",
                 agent_api: "Synthetic Interface // AGENT_API",
                 console_access: "Access Console",
                 area_status: "Area Status",
                 critical_failure: "Critical Failure",
-                agents: "Agents",
+                agents: "Subjects",
                 online: "Online",
                 system_time: "System Time",
                 version: "Version",
@@ -72,9 +72,9 @@ export const resources = {
                 lost: "⚠ Signal Lost // Disconnected",
                 restart: "System Restart",
                 new_game: "New Game",
-                sanity: "Sanity",
+                sanity: "Contamination",
                 location: "Location",
-                evidence: "Evidence",
+                evidence: "Records",
                 settings: "Settings",
                 rules: "Rules"
             },
@@ -122,14 +122,16 @@ export const resources = {
                 type_photo: "Photo",
                 survival_record: "Survival Record",
                 return: "Return to Ward",
-                status_line: "Status: Exploring // Evidence: {{count}}/12 Found"
+                return: "Return to Ward",
+                status_line: "Status: Exploring // Evidence: {{count}}/12 Found",
+                close_terminal: "[ CLOSE_TERMINAL ]"
             },
             auth: {
                 connect_hint: "Connect your wallet to start Human mode.",
                 checking_session: "Checking Session...",
                 verifying_wallet: "Verifying Wallet...",
                 loading_provider: "Loading Wallet Provider...",
-                connect_wallet: "Connect Wallet",
+                connect_wallet: "Link Bio-Monitor",
                 back: "Back",
                 session_lost: "Session lost. Return to landing.",
                 admin_only: "Agent mode is admin-only.",
@@ -140,6 +142,13 @@ export const resources = {
                     dynamic_not_configured: "Dynamic environment is not configured.",
                     provider_loading: "Wallet provider is still loading. Please retry."
                 }
+            },
+            rulebook: {
+                secure_file: "SECURE_FILE: #8821",
+                title: "PATIENT PROTOCOLS",
+                auth: "Auth: Dr. Matsuda // Level 3 Clearance",
+                rule_prefix: "Rule_0",
+                corruption: "Corruption Detected in Sector 4..."
             }
         }
     },
@@ -147,26 +156,26 @@ export const resources = {
         translation: {
             landing: {
                 rec: "REC",
-                agency: "生存规则",
-                division: "第七辖区 // 已连接",
+                agency: "规则怪谈",
+                division: "隔离病栋 // 已连接",
                 database: "资料库",
-                personnel: "人员档案",
+                personnel: "患者档案",
                 monitoring: "实时监控中",
                 live_board: "实时看板",
                 restricted: "限制进入区域",
-                manual_mode: "手动操作模式",
+                manual_mode: "碳基幸存者",
                 manual_desc: "适用于碳基生物。通过文字交互探索副本，依靠直觉与推理生存。",
                 manual_warning: "警告：检测到高危认知危害。建议配备SAN值监测设备。",
-                investigator: "调查员接入",
-                human_link: "调查员链接 // HUMAN_LINK",
+                investigator: "幸存者接入",
+                human_link: "幸存者链接 // HUMAN_LINK",
                 init_seq: "初始化序列",
-                agent_mode: "AI 智能体",
+                agent_mode: "硅基幸存者",
                 agent_desc: "适用于硅基智能体。运行下方指令接入神经网络，部署自动化代理进行探索。",
                 agent_api: "合成智能接口 // AGENT_API",
                 console_access: "点击进入控制台",
                 area_status: "区域状态",
                 critical_failure: "严重失效",
-                agents: "特工",
+                agents: "实验体",
                 online: "在线",
                 system_time: "系统时间",
                 version: "版本",
@@ -213,9 +222,9 @@ export const resources = {
                 lost: "⚠ 信号丢失 // 连接断开",
                 restart: "系统重启",
                 new_game: "新游戏",
-                sanity: "理智",
+                sanity: "污染度",
                 location: "位置",
-                evidence: "线索",
+                evidence: "病历残页",
                 settings: "设置",
                 rules: "守则"
             },
@@ -263,14 +272,16 @@ export const resources = {
                 type_photo: "照片",
                 survival_record: "生存记录",
                 return: "返回病房",
-                status_line: "生存状态: 探索中 // 关键线索: {{count}}/12 已发现"
+                return: "返回病房",
+                status_line: "生存状态: 探索中 // 关键线索: {{count}}/12 已发现",
+                close_terminal: "[ 关闭终端 ]"
             },
             auth: {
                 connect_hint: "连接钱包后即可进入人类模式。",
                 checking_session: "正在检查会话...",
                 verifying_wallet: "正在验证钱包签名...",
                 loading_provider: "钱包连接器加载中...",
-                connect_wallet: "连接钱包",
+                connect_wallet: "连接生命体征监测仪",
                 back: "返回",
                 session_lost: "会话已失效，请返回落地页。",
                 admin_only: "Agent 模式仅管理员可用。",
@@ -281,6 +292,13 @@ export const resources = {
                     dynamic_not_configured: "尚未配置 Dynamic 环境。",
                     provider_loading: "钱包连接器仍在加载，请稍后重试。"
                 }
+            },
+            rulebook: {
+                secure_file: "绝密档案: #8821",
+                title: "患者守则",
+                auth: "授权: 松田医生 // 3级权限",
+                rule_prefix: "守则_0",
+                corruption: "警告：第4扇区数据损坏..."
             }
         }
     }

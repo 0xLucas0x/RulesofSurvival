@@ -20,7 +20,7 @@ export default function RootLayout({
     <html lang="zh-CN">
       <head>
         <link
-          href="https://fonts.googleapis.com/css2?family=Crimson+Text:ital,wght@0,400;0,600;0,700;1,400&family=Special+Elite&family=Ma+Shan+Zheng&family=Noto+Serif+SC:wght@400;700&display=swap"
+          href="https://fonts.googleapis.com/css2?family=Crimson+Text:ital,wght@0,400;0,600;0,700;1,400&family=Special+Elite&family=Ma+Shan+Zheng&family=Noto+Serif+SC:wght@400;700&family=Share+Tech+Mono&family=Creepster&display=swap"
           rel="stylesheet"
         />
         <link

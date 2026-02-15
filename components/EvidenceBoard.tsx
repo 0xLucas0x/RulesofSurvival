@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
+import i18n from '../lib/i18n';
 import { Evidence } from '../types';
 import { Polaroid, StickyNote, ConfidentialDoc, KeyItem } from './EvidenceItems';
 
@@ -28,7 +29,17 @@ export const EvidenceBoard: React.FC<EvidenceBoardProps> = ({ isOpen, onClose, i
   const dragOffset = useRef({ x: 0, y: 0 });
   const boardRef = useRef<HTMLDivElement>(null);
   const maxZIndex = useRef(10);
-  // ... rest of component
+  const [clockText, setClockText] = useState('');
+
+  useEffect(() => {
+    const tick = () => {
+      // Use standard locale string or custom format. Here sticking to 24h format but localized digits/separators if applicable.
+      setClockText(new Date().toLocaleTimeString(i18n.language === 'zh' ? 'zh-CN' : 'en-US', { hour12: false }));
+    };
+    const timer = setInterval(tick, 1000);
+    tick();
+    return () => clearInterval(timer);
+  }, [i18n.language]); // Re-run if language changes
 
 
   // Load positions from localStorage on mount
@@ -153,30 +164,35 @@ export const EvidenceBoard: React.FC<EvidenceBoardProps> = ({ isOpen, onClose, i
         onClick={onClose}
       ></div>
 
-      {/* Main Board Area */}
+      {/* Main Board Area - Digital Terminal Style */}
       <div
-        className="relative w-full h-full md:h-[90vh] bg-[#2a2323] overflow-hidden shadow-2xl border-y-8 md:border-8 border-[#3e2c2c] flex flex-col"
+        className="relative w-full h-full md:h-[90vh] bg-black border border-red-900/30 flex flex-col shadow-[0_0_50px_rgba(220,38,38,0.1)] overflow-hidden"
         onClick={(e) => e.stopPropagation()} // Prevent closing when clicking board background
       >
-        {/* Cork/Felt Texture */}
-        <div className="absolute inset-0 opacity-40 bg-[url('https://www.transparenttextures.com/patterns/dark-matter.png')] pointer-events-none"></div>
-        {/* Vignette */}
-        <div className="absolute inset-0 pointer-events-none bg-[radial-gradient(circle_at_center,transparent_50%,rgba(0,0,0,0.8)_100%)]"></div>
+        {/* CRT/Grid Effects */}
+        <div className="absolute inset-0 bg-[linear-gradient(rgba(18,16,16,0)_50%,rgba(0,0,0,0.25)_50%),linear-gradient(90deg,rgba(255,0,0,0.06)_1px,transparent_1px),linear-gradient(rgba(255,0,0,0.06)_1px,transparent_1px)] bg-[length:100%_4px,20px_20px,20px_20px] pointer-events-none"></div>
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,transparent_0%,rgba(0,0,0,0.8)_100%)] pointer-events-none"></div>
 
-        {/* Tools/Header overlay (Optional) */}
-        <div className="absolute top-4 left-4 z-50 pointer-events-none">
-          <h2 className="font-header text-4xl text-white/50 tracking-widest uppercase drop-shadow-md select-none transform -rotate-2">
-            {t('evidence.survival_record', 'Survival Record')} #{turnCount}
-          </h2>
+        {/* Header - System Bar */}
+        <div className="absolute top-0 left-0 right-0 h-10 bg-red-950/20 border-b border-red-900/30 flex items-center justify-between px-4 z-50 backdrop-blur-sm">
+          <div className="flex items-center gap-2">
+            <span className="material-symbols-outlined text-red-500 text-sm">database</span>
+            <span className="font-tech text-red-500 text-xs tracking-widest uppercase">
+              {t('evidence.survival_record', 'Survival Record')} // #{turnCount}
+            </span>
+          </div>
+          <div className="flex items-center gap-4">
+            <span className="font-mono text-[10px] text-red-900/60 uppercase hidden md:inline">
+              {t('landing.system_time')}: {clockText} // Encryption: AES-256
+            </span>
+            <button
+              onClick={onClose}
+              className="hover:bg-red-900/30 text-red-500 hover:text-red-400 px-2 py-0.5 rounded text-xs font-tech tracking-widest border border-transparent hover:border-red-500/50 transition-all"
+            >
+              [ CLOSE_TERMINAL ]
+            </button>
+          </div>
         </div>
-
-        <button
-          onClick={onClose}
-          className="absolute top-4 right-4 z-50 bg-red-900/80 hover:bg-red-700 text-white px-4 py-2 rounded font-header border border-red-500 shadow-lg transition-transform hover:scale-105 active:scale-95 flex items-center gap-2"
-        >
-          <span className="material-symbols-outlined">arrow_back</span>
-          {t('evidence.return', 'Return')}
-        </button>
 
         {/* Board Content Area */}
         <div ref={boardRef} className="w-full h-full relative cursor-grab active:cursor-grabbing">
@@ -211,14 +227,18 @@ export const EvidenceBoard: React.FC<EvidenceBoardProps> = ({ isOpen, onClose, i
 
           {inventory.length === 0 && (
             <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-              <p className="font-header text-3xl text-white/20 select-none">{t('evidence.empty')}</p>
+              <p className="font-tech text-xl text-red-900/40 select-none tracking-widest animate-pulse">
+                {t('evidence.empty')}
+              </p>
             </div>
           )}
         </div>
 
-        {/* Footer info */}
-        <div className="absolute bottom-0 w-full bg-black/80 text-center py-2 border-t border-white/10 pointer-events-none">
-          <p className="font-mono text-xs text-green-500/50 tracking-[0.5em]">{t('evidence.status_line', { count: inventory.length, defaultValue: `Status: Exploring // Evidence: ${inventory.length}/12` })}</p>
+        {/* Footer info - Status Line */}
+        <div className="absolute bottom-0 w-full bg-black/90 text-right py-1 px-4 border-t border-red-900/30 pointer-events-none z-50">
+          <p className="font-mono text-[10px] text-red-700/50 tracking-[0.2em]">
+            {t('evidence.status_line', { count: inventory.length, defaultValue: `Status: Exploring // Evidence: ${inventory.length}/12` })}
+          </p>
         </div>
       </div>
     </div>

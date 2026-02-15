@@ -1,43 +1,70 @@
-import React from 'react';
+import { useTranslation } from 'react-i18next';
 
 interface RuleBookProps {
   rules: string[];
 }
 
 export const RuleBook: React.FC<RuleBookProps> = ({ rules }) => {
+  const { t } = useTranslation();
   return (
-    <aside className="hidden lg:flex w-80 bg-[#dcdcdc] border-r-8 border-metal-dark flex-col shrink-0 relative shadow-2xl overflow-hidden" 
-           style={{ backgroundImage: "url('https://www.transparenttextures.com/patterns/notebook.png')" }}>
-      
-      {/* Clipboard Clip Visual */}
-      <div className="absolute top-0 left-1/2 -translate-x-1/2 w-32 h-12 bg-gray-300 rounded-b-lg shadow-md z-20 flex items-center justify-center border-b-4 border-gray-400">
-        <div className="w-24 h-8 border-2 border-gray-400 rounded bg-gradient-to-b from-gray-100 to-gray-300"></div>
-      </div>
+    <aside className="hidden lg:flex w-80 bg-[#1a0f0f] border-r border-red-900/30 flex-col shrink-0 relative shadow-2xl overflow-hidden backdrop-blur-sm">
 
-      <div className="pt-16 pb-4 px-6 border-b-2 border-dashed border-gray-400/50 relative">
-        <div className="absolute top-20 right-6 transform rotate-12 opacity-80 border-4 border-red-800 text-red-800 font-header text-sm px-2 py-1 rounded animate-pulse">
-          绝密 | 档案
+      {/* Background Texture - Digital Noise */}
+      <div className="absolute inset-0 opacity-5 pointer-events-none"
+        style={{ backgroundImage: "url('https://www.transparenttextures.com/patterns/carbon-fibre.png')" }}></div>
+      <div className="absolute inset-0 bg-gradient-to-b from-black/0 via-black/0 to-black/80 pointer-events-none"></div>
+
+      {/* Medical Header Bar */}
+      <div className="relative pt-6 pb-4 px-6 border-b border-red-900/20 bg-red-950/10">
+        <div className="flex justify-between items-center mb-2">
+          <span className="text-[10px] font-tech text-red-400 tracking-[0.3em] uppercase animate-pulse">
+            {t('rulebook.secure_file')}
+          </span>
+          <span className="material-symbols-outlined text-red-500 text-sm">local_hospital</span>
         </div>
-        <h2 className="text-2xl font-header font-bold text-black uppercase text-center tracking-tighter underline decoration-2 decoration-red-900/40">
-          患者守则
+
+        <h2 className="text-xl font-header font-bold text-red-50 uppercase tracking-widest mb-1 flex items-center gap-2">
+          <span className="w-1 h-4 bg-red-600"></span>
+          {t('rulebook.title')}
         </h2>
-        <p className="text-center font-hand text-blue-900 mt-1 text-xl -rotate-1">松田医生 批注</p>
+        <p className="text-[10px] font-mono text-red-300 tracking-wider">
+          {t('rulebook.auth')}
+        </p>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-6 space-y-6 custom-scrollbar pb-20">
-        <div className="space-y-6 relative">
+      <div className="flex-1 overflow-y-auto p-6 space-y-4 custom-scrollbar pb-20 relative">
+        {/* Subtle grid line backdrop */}
+        <div className="absolute inset-0 pointer-events-none opacity-5"
+          style={{ backgroundImage: 'linear-gradient(0deg, transparent 24%, rgba(255, 255, 255, .3) 25%, rgba(255, 255, 255, .3) 26%, transparent 27%, transparent 74%, rgba(255, 255, 255, .3) 75%, rgba(255, 255, 255, .3) 76%, transparent 77%, transparent)', backgroundSize: '30px 30px' }}>
+        </div>
+
+        <div className="space-y-4 relative z-10">
           {rules.map((rule, index) => (
-            <div key={index} className="flex gap-3 items-start group">
-              <span className="font-header text-red-900 font-bold text-lg mt-0.5 select-none">{index + 1}.</span>
-              <p className={`text-xl leading-6 font-hand transition-colors ${index % 2 === 0 ? 'text-blue-900' : 'text-black'} group-hover:text-red-800`}>
-                {rule}
-              </p>
+            <div key={index} className="group relative pl-4 border-l border-red-900/20 hover:border-red-500/50 transition-colors py-1">
+              {/* Number Indicator */}
+              <span className="absolute -left-[5px] top-2 w-[9px] h-[1px] bg-red-600 group-hover:bg-red-400 group-hover:w-[15px] transition-all"></span>
+
+              <div className="flex flex-col gap-1">
+                <span className="text-[10px] font-mono text-red-500 group-hover:text-red-300 uppercase tracking-widest">
+                  {t('rulebook.rule_prefix')}{index + 1}
+                </span>
+                <p className="text-sm leading-relaxed font-body text-gray-300 group-hover:text-white transition-colors group-hover:font-bold">
+                  {rule}
+                </p>
+              </div>
             </div>
           ))}
         </div>
-        
-        {/* Decorative blood stain */}
-        <div className="absolute bottom-10 right-4 w-16 h-16 bg-red-900/20 rounded-full blur-xl pointer-events-none mix-blend-multiply"></div>
+
+        {/* Footer Glitch Block */}
+        <div className="mt-8 border-t border-dashed border-red-900/30 pt-4 opacity-80">
+          <div className="text-[9px] font-mono text-red-400/80 uppercase tracking-widest mb-2">
+            {t('rulebook.corruption')}
+          </div>
+          <div className="h-2 w-full bg-red-900/10 overflow-hidden relative">
+            <div className="absolute inset-0 bg-red-500/20 w-1/3 animate-[pulse_2s_infinite]"></div>
+          </div>
+        </div>
       </div>
     </aside>
   );

@@ -23,6 +23,8 @@ const config: Config = {
         header: ['Special Elite', 'serif'],
         body: ['Noto Serif SC', 'Crimson Text', 'serif'],
         hand: ['Ma Shan Zheng', 'cursive'],
+        tech: ['Share Tech Mono', 'monospace'],
+        horror: ['Creepster', 'cursive'],
       },
       animation: {
         'pulse-fast': 'pulse 1s cubic-bezier(0.4, 0, 0.6, 1) infinite',

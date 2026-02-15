@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
+import i18n from '../lib/i18n';
 import { Choice } from '../types';
 import { generateSceneImage } from '../services/geminiService';
 
@@ -173,12 +174,12 @@ export const MainDisplay: React.FC<MainDisplayProps> = ({
 
   useEffect(() => {
     const tick = () => {
-      setClockText(new Date().toLocaleTimeString('en-US', { hour12: false }));
+      setClockText(new Date().toLocaleTimeString(i18n.language === 'zh' ? 'zh-CN' : 'en-US', { hour12: false }));
     };
     const timer = setInterval(tick, 1000);
     tick();
     return () => clearInterval(timer);
-  }, []);
+  }, [i18n.language]);
 
   const getActionLabel = (type: string) => {
     switch (type) {
@@ -381,16 +382,23 @@ export const MainDisplay: React.FC<MainDisplayProps> = ({
       </div>
 
       {/* --- HUD Elements (Camera Overlay) --- */}
-      <div className={`absolute top-4 left-4 z-10 flex flex-col font-header ${themeColor} text-xs md:text-sm tracking-[0.2em] opacity-80 pointer-events-none`}>
-        <span className="flex items-center gap-2">
-          <span className={`w-2 h-2 ${isVictory ? 'bg-emerald-500' : 'bg-red-600'} rounded-full animate-pulse shadow-[0_0_8px_currentColor]`}></span>
-          {isGameOver ? (isVictory ? t('hud.transmission_complete') : t('hud.connection_lost')) : t('hud.recording')}
-        </span>
-        <span className="text-hospital-white/60 mt-1">{t('hud.camera')}</span>
+      <div className={`absolute top-4 left-4 z-10 flex flex-col font-tech ${themeColor} text-xs md:text-sm tracking-[0.2em] opacity-80 pointer-events-none`}>
+        <div className="flex items-center gap-3">
+          <div className={`h-6 w-auto px-2 border ${isVictory ? 'border-emerald-500 bg-emerald-900/20' : 'border-red-500 bg-red-900/20'} flex items-center justify-center animate-pulse`}>
+            <span className={`${isVictory ? 'text-emerald-500' : 'text-red-500'} text-xs font-bold tracking-widest`}>
+              {isGameOver ? (isVictory ? 'TR_COMPLETE' : 'NO_SIGNAL') : 'REC'}
+            </span>
+          </div>
+          <span className="flex items-center gap-2">
+            <span className={`w-2 h-2 ${isVictory ? 'bg-emerald-500' : 'bg-red-600'} rounded-full animate-pulse shadow-[0_0_8px_currentColor]`}></span>
+            {isGameOver ? (isVictory ? t('hud.transmission_complete') : t('hud.connection_lost')) : t('hud.recording')}
+          </span>
+        </div>
+        <span className="text-hospital-white/60 mt-1 pl-1">{t('hud.camera')} // {clockText}</span>
       </div>
-      <div className="absolute top-4 right-4 z-10 font-header text-hospital-white/50 text-xs md:text-sm tracking-widest pointer-events-none text-right">
-        <div>{clockText || '--:--:--'}</div>
-        <div className="text-[10px] mt-1 opacity-50">ISO 12800 • f/1.4</div>
+      <div className="absolute top-4 right-4 z-10 font-tech text-hospital-white/50 text-xs md:text-sm tracking-widest pointer-events-none text-right">
+        <div>{t('landing.system_time')}: {clockText || '--:--:--'}</div>
+        <div className="text-[10px] mt-1 opacity-50">ISO 12800 • f/1.4 • 24fps</div>
       </div>
 
       {/* --- Loading Indicator (Centered) --- */}
@@ -450,6 +458,9 @@ export const MainDisplay: React.FC<MainDisplayProps> = ({
         <div className={`w-full grid ${gridClasses} gap-4 shrink-0 pb-2`}>
           {choices.map((choice) => {
             const isRisky = choice.actionType === 'risky';
+            const choiceBorderColor = isRisky ? 'border-red-500/50' : 'border-white/20';
+            const choiceHoverBorder = isRisky ? 'group-hover:border-red-500' : 'group-hover:border-white';
+
             return (
               <button
                 key={choice.id}
@@ -457,42 +468,49 @@ export const MainDisplay: React.FC<MainDisplayProps> = ({
                 disabled={isLoading || isGameOver}
                 className={`
                   group relative flex items-stretch text-left
-                  min-h-[4rem] h-auto w-full
-                  border bg-black/60 backdrop-blur-md
-                  transition-all duration-200
-                  ${isLoading || isGameOver ? 'opacity-40 grayscale cursor-not-allowed' : 'active:translate-y-[2px] hover:bg-black/80'}
-                  ${getActionStyles(choice.actionType)}
+                  min-h-[4.5rem] h-auto w-full
+                  bg-black/80 backdrop-blur-md
+                  transition-all duration-300
+                  ${isLoading || isGameOver ? 'opacity-40 grayscale cursor-not-allowed' : 'hover:bg-red-950/10'}
+                  border ${choiceBorderColor} ${choiceHoverBorder}
                 `}
               >
-                {/* Tech Deco Lines */}
-                <div className="absolute top-0 left-0 w-[2px] h-full bg-current opacity-20 group-hover:opacity-100 transition-opacity"></div>
-                <div className="absolute top-0 right-0 w-[2px] h-[8px] bg-current opacity-50"></div>
-                <div className="absolute bottom-0 right-0 w-[2px] h-[8px] bg-current opacity-50"></div>
-                <div className="absolute top-0 right-0 w-[8px] h-[2px] bg-current opacity-50"></div>
-                <div className="absolute bottom-0 right-0 w-[8px] h-[2px] bg-current opacity-50"></div>
+                {/* Corner Brackets for Terminal Feel */}
+                <div className={`absolute -top-[1px] -left-[1px] w-2 h-2 border-t border-l ${isRisky ? 'border-red-500' : 'border-white/40'} group-hover:border-white transition-colors`}></div>
+                <div className={`absolute -bottom-[1px] -right-[1px] w-2 h-2 border-b border-r ${isRisky ? 'border-red-500' : 'border-white/40'} group-hover:border-white transition-colors`}></div>
 
-                {/* Icon Section - Boxy */}
+                {/* Icon Section */}
                 <div className={`
                   shrink-0 w-14 flex items-center justify-center border-r border-white/5
-                  ${isRisky ? 'bg-red-950/30 text-red-500' : 'bg-white/5'}
+                  ${isRisky ? 'bg-red-950/20 text-red-500' : 'bg-white/5 text-gray-400'}
+                  group-hover:text-white transition-colors
                 `}>
-                  <span className="material-symbols-outlined text-2xl group-hover:scale-110 transition-transform opacity-70 group-hover:opacity-100">
+                  <span className="material-symbols-outlined text-2xl group-hover:scale-110 transition-transform">
                     {getActionIcon(choice.actionType)}
                   </span>
                 </div>
 
                 {/* Text Section */}
                 <div className="flex-1 p-3 pl-4 flex flex-col justify-center">
-                  <div className="text-[10px] font-mono opacity-40 mb-1 tracking-widest uppercase">
-                    选项_0{choice.id} // {getActionLabel(choice.actionType)}
+                  <div className={`text-[10px] font-tech mb-1 tracking-widest uppercase flex items-center gap-2 ${isRisky ? 'text-red-400' : 'text-gray-500'}`}>
+                    <span>CMD_0{choice.id}</span>
+                    <span className="w-1 h-3 bg-current opacity-20"></span>
+                    <span>{getActionLabel(choice.actionType)}</span>
                   </div>
-                  <span className="font-header text-sm md:text-base font-bold tracking-wider leading-tight w-full break-words group-hover:text-white transition-colors">
+                  <span className="font-sc text-sm md:text-base font-bold tracking-wider leading-tight w-full break-words text-gray-300 group-hover:text-white transition-colors shadow-black drop-shadow-sm">
                     {choice.text}
                   </span>
                 </div>
 
+                {/* Risky Warning Strip */}
+                {isRisky && (
+                  <div className="absolute right-2 top-2 text-[10px] font-tech text-red-500 animate-pulse tracking-widest border border-red-500/30 px-1">
+                    WARNING
+                  </div>
+                )}
+
                 {/* Hover Scanline (Vertical) */}
-                <div className="absolute top-0 bottom-0 w-[1px] bg-white/20 left-0 group-hover:left-full transition-all duration-1000 ease-in-out opacity-0 group-hover:opacity-100"></div>
+                <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/5 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-1000 ease-in-out pointer-events-none"></div>
               </button>
             );
           })}
