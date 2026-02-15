@@ -345,6 +345,9 @@ const AppShell: React.FC<{ wallet: WalletBridge }> = ({ wallet }) => {
           void handleEnterHuman();
         }}
         isHumanEntering={isHumanEntryLoading}
+        onBoardEnter={() => {
+          window.location.href = '/board';
+        }}
         onAgentEnter={() => {
           if (authUser?.role === 'admin') {
             window.location.href = '/admin';

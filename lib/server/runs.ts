@@ -1,7 +1,15 @@
-import { GameRunStatus, UserRole } from '@prisma/client';
+import { GameRunStatus, RunActorType, UserRole } from '@prisma/client';
 import { INITIAL_STATE } from '../../constants';
-import { Choice, GameState, GeminiResponse } from '../../types';
+import { ActorType, Choice, GameState, GeminiResponse } from '../../types';
 import { generateNextTurnServer } from './aiEngine';
+import {
+  getSanityCriticalThreshold,
+  parseActorTypeInput,
+  publishRunStarted,
+  publishRunTurnUpdate,
+  runStatusFromOutcome,
+  syncBoardRunSnapshotFromDb,
+} from './board';
 import { db } from './db';
 import { isWalletAllowedForImages } from './entitlement';
 import { HttpError } from './http';
@@ -141,21 +149,28 @@ const toRunSummary = (run: {
   currentTurnNo: number;
   startedAt: Date;
   isVictory: boolean | null;
+  actorType: RunActorType;
 }) => ({
   runId: run.id,
   status: run.status.toLowerCase(),
   turnNo: run.currentTurnNo,
   startedAt: run.startedAt,
+  actorType: run.actorType === RunActorType.AGENT ? 'agent' : 'human',
   isVictory: run.isVictory,
 });
 
-export const startOrGetActiveRun = async (userId: string) => {
+export const startOrGetActiveRun = async (
+  authUser: { id: string; walletAddress: string },
+  actorTypeInput: ActorType,
+) => {
+  const actorType = parseActorTypeInput(actorTypeInput);
   const active = await db.gameRun.findFirst({
-    where: { userId, status: GameRunStatus.ACTIVE },
+    where: { userId: authUser.id, status: GameRunStatus.ACTIVE },
     orderBy: { startedAt: 'desc' },
   });
 
   if (active) {
+    void syncBoardRunSnapshotFromDb(active.id);
     const state = await getLastStateFromRun(active.id);
     return {
       summary: toRunSummary(active),
@@ -167,15 +182,22 @@ export const startOrGetActiveRun = async (userId: string) => {
   const snapshot = await makeSnapshot();
   const created = await db.gameRun.create({
     data: {
-      userId,
+      userId: authUser.id,
       status: GameRunStatus.ACTIVE,
+      actorType: actorType === 'agent' ? RunActorType.AGENT : RunActorType.HUMAN,
       currentTurnNo: 0,
       configSnapshotJson: snapshot as any,
-      activeKey: userId,
+      activeKey: authUser.id,
     },
   });
 
   await recordRunStarted(created.startedAt);
+  void publishRunStarted({
+    runId: created.id,
+    actorType,
+    walletAddress: authUser.walletAddress,
+    startedAt: created.startedAt,
+  });
 
   return {
     summary: toRunSummary(created),
@@ -371,6 +393,33 @@ export const submitRunTurn = async (
   if (stateAfter.isGameOver) {
     await recordRunCompleted(run.userId, new Date());
   }
+
+  const nextRunStatus = stateAfter.isGameOver
+    ? stateAfter.isVictory
+      ? GameRunStatus.COMPLETED
+      : GameRunStatus.FAILED
+    : GameRunStatus.ACTIVE;
+  const endedAt = stateAfter.isGameOver ? new Date() : null;
+  const sanityCrossedCritical =
+    stateBefore.sanity > getSanityCriticalThreshold() && stateAfter.sanity <= getSanityCriticalThreshold();
+
+  void publishRunTurnUpdate({
+    runId,
+    actorType: run.actorType === RunActorType.AGENT ? 'agent' : 'human',
+    walletAddress: authUser.walletAddress,
+    status: runStatusFromOutcome(nextRunStatus),
+    startedAt: run.startedAt,
+    endedAt,
+    isVictory: stateAfter.isGameOver ? stateAfter.isVictory : null,
+    turnNo: stateAfter.turnCount,
+    sanity: stateAfter.sanity,
+    location: stateAfter.location,
+    narrative: stateAfter.narrative,
+    choiceText: choice.text,
+    choiceType: choice.actionType,
+    newEvidenceNames: (ai.new_evidence || []).map((e) => e.name).filter(Boolean),
+    sanityCrossedCritical,
+  });
 
   const imageUnlocked = await isWalletAllowedForImages(authUser.walletAddress);
 

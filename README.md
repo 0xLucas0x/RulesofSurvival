@@ -84,6 +84,8 @@ Core tables include:
 
 - `GET /api/v1/stats/landing`
 - `GET /api/v1/leaderboard?board=composite|clear|active&window=7d|all`
+- `GET /api/v1/board/snapshot` (public)
+- `GET /api/v1/board/stream` (public SSE)
 
 ### Admin (wallet role = admin)
 
@@ -96,6 +98,7 @@ Core tables include:
 ## Access control notes
 
 - `/admin` and `/lab` are admin-only pages.
+- `/board` is public and does not require authentication.
 - `/api/v1/game/turn` is now admin debug-only (for lab/debug workflows).
 - Player gameplay should use `/api/v1/runs/:runId/turn`.
 

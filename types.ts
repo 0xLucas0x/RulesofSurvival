@@ -62,12 +62,60 @@ export interface AuthUser {
   isFirstHumanEntry: boolean;
 }
 
+export type ActorType = 'human' | 'agent';
+
 export interface RunSummary {
   runId: string;
   status: 'active' | 'completed' | 'abandoned' | 'failed';
   turnNo: number;
   startedAt: string;
+  actorType: ActorType;
   isVictory?: boolean | null;
+}
+
+export type BoardEventType =
+  | 'run_started'
+  | 'turn_milestone'
+  | 'item_acquired'
+  | 'victory'
+  | 'death'
+  | 'sanity_critical';
+
+export interface BoardRunSnapshot {
+  runId: string;
+  actorType: ActorType;
+  status: 'active' | 'completed' | 'abandoned' | 'failed';
+  walletMasked: string;
+  turnNo: number;
+  dayNo: number;
+  sanity: number;
+  location: string;
+  startedAt: string;
+  endedAt?: string | null;
+  updatedAt: string;
+  isVictory?: boolean | null;
+  lastActionText?: string;
+  lastActionType?: string;
+  lastNarrative?: string;
+  lastEventText?: string;
+  lastEventType?: BoardEventType;
+  lastEventItemName?: string;
+}
+
+export interface BoardEvent {
+  id: string;
+  type: BoardEventType;
+  runId: string;
+  actorType: ActorType;
+  walletMasked: string;
+  status: 'active' | 'completed' | 'abandoned' | 'failed';
+  turnNo: number;
+  dayNo: number;
+  sanity: number;
+  location: string;
+  message: string;
+  createdAt: string;
+  itemName?: string;
 }
 
 export interface TurnSnapshot {

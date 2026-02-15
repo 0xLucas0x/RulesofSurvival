@@ -1,0 +1,486 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Active Agent Monitoring Board</title>
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        "primary": "#ea2a33",
+                        "background-light": "#f8f6f6",
+                        "background-dark": "#0d0d0d", 
+                        "terminal-bg": "#141414",
+                        "card-bg": "#1c1c1c",
+                    },
+                    fontFamily: {
+                        "display": ["Space Grotesk", "sans-serif"]
+                    },
+                    borderRadius: {"DEFAULT": "0.125rem", "lg": "0.25rem", "xl": "0.5rem", "full": "0.75rem"},
+                    backgroundImage: {
+                        'scanlines': 'linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%), linear-gradient(90deg, rgba(255, 0, 0, 0.06), rgba(0, 255, 0, 0.02), rgba(0, 0, 255, 0.06))',
+                    }
+                },
+            },
+        }
+    </script>
+<style>
+        /* Custom scrollbar for the gritty terminal feel */
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #0d0d0d;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #333;
+            border-radius: 2px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #ea2a33;
+        }
+        
+        /* CRT Scanline Effect Overlay */
+        .scanline-overlay {
+            background: linear-gradient(
+                to bottom,
+                rgba(255,255,255,0),
+                rgba(255,255,255,0) 50%,
+                rgba(0,0,0,0.2) 50%,
+                rgba(0,0,0,0.2)
+            );
+            background-size: 100% 4px;
+            position: fixed;
+            pointer-events: none;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 50;
+        }
+
+        /* Subtle flicker animation */
+        @keyframes flicker {
+            0% { opacity: 0.97; }
+            5% { opacity: 0.95; }
+            10% { opacity: 0.9; }
+            15% { opacity: 0.95; }
+            20% { opacity: 0.99; }
+            100% { opacity: 0.97; }
+        }
+        .monitor-flicker {
+            animation: flicker 4s infinite;
+        }
+
+        /* Scrolling ticker text */
+        .ticker-wrap {
+            width: 100%;
+            overflow: hidden;
+            white-space: nowrap;
+            box-sizing: border-box;
+        }
+        .ticker-move {
+            display: inline-block;
+            white-space: nowrap;
+            animation: ticker 15s linear infinite;
+        }
+        @keyframes ticker {
+            0% { transform: translate3d(0, 0, 0); }
+            100% { transform: translate3d(-100%, 0, 0); }
+        }
+        
+        /* Glitch text effect on hover */
+        .glitch-hover:hover {
+            text-shadow: 2px 0 #ea2a33, -2px 0 cyan;
+        }
+    </style>
+</head>
+<body class="bg-background-light dark:bg-background-dark text-slate-300 font-display h-screen flex flex-col overflow-hidden selection:bg-primary selection:text-white">
+<!-- CRT Scanline Overlay -->
+<div class="scanline-overlay"></div>
+<!-- Top Status Bar -->
+<header class="h-14 border-b border-primary/30 bg-terminal-bg flex items-center justify-between px-6 z-10 shrink-0">
+<div class="flex items-center space-x-4">
+<div class="w-3 h-3 bg-primary rounded-full animate-pulse shadow-[0_0_10px_#ea2a33]"></div>
+<h1 class="text-xl font-bold tracking-widest text-white uppercase glitch-hover">Observer <span class="text-primary">Console</span> v.4.0.2</h1>
+</div>
+<div class="flex items-center space-x-8 text-xs font-mono tracking-wider text-primary/80">
+<div class="flex flex-col items-end">
+<span class="text-slate-500">SYSTEM TIME</span>
+<span class="text-white">23:42:09</span>
+</div>
+<div class="flex flex-col items-end">
+<span class="text-slate-500">SERVER LOAD</span>
+<span class="text-white">89% [CRITICAL]</span>
+</div>
+<div class="flex flex-col items-end">
+<span class="text-slate-500">NET STATUS</span>
+<span class="text-primary font-bold animate-pulse">UNSTABLE</span>
+</div>
+<div class="border border-primary/40 px-3 py-1 bg-primary/10 rounded">
+                USER: OBSERVER_99
+            </div>
+</div>
+</header>
+<div class="flex flex-1 overflow-hidden monitor-flicker relative z-10">
+<!-- Sidebar: Active Missions -->
+<aside class="w-72 bg-terminal-bg border-r border-primary/20 flex flex-col shrink-0">
+<div class="p-4 border-b border-primary/20 bg-primary/5">
+<h2 class="text-sm font-bold text-primary tracking-widest uppercase flex items-center">
+<span class="material-icons text-base mr-2">radar</span> Active Sectors
+                </h2>
+</div>
+<div class="flex-1 overflow-y-auto p-4 space-y-6">
+<!-- Sector Group -->
+<div>
+<div class="flex justify-between items-center mb-2">
+<h3 class="text-xs text-slate-400 font-bold uppercase tracking-wider">Psychiatric Ward B</h3>
+<span class="text-[10px] bg-primary/20 text-primary px-1 rounded">HIGH THREAT</span>
+</div>
+<ul class="space-y-1">
+<li class="group cursor-pointer">
+<div class="flex items-center p-2 rounded bg-card-bg border border-slate-800 hover:border-primary/50 transition-colors">
+<span class="w-1.5 h-1.5 rounded-full bg-primary mr-3 shadow-[0_0_5px_#ea2a33]"></span>
+<span class="text-sm font-mono text-slate-300 group-hover:text-white">Rm 204 - Isolation</span>
+</div>
+</li>
+<li class="group cursor-pointer">
+<div class="flex items-center p-2 rounded bg-card-bg border border-slate-800 hover:border-primary/50 transition-colors">
+<span class="w-1.5 h-1.5 rounded-full bg-slate-600 mr-3"></span>
+<span class="text-sm font-mono text-slate-500 group-hover:text-slate-300">Rm 209 - Storage</span>
+</div>
+</li>
+</ul>
+</div>
+<!-- Sector Group -->
+<div>
+<div class="flex justify-between items-center mb-2">
+<h3 class="text-xs text-slate-400 font-bold uppercase tracking-wider">Morgue - Level B2</h3>
+<span class="text-[10px] bg-emerald-900/40 text-emerald-500 px-1 rounded">SECURE</span>
+</div>
+<ul class="space-y-1">
+<li class="group cursor-pointer">
+<div class="flex items-center p-2 rounded bg-card-bg border border-slate-800 hover:border-primary/50 transition-colors">
+<span class="w-1.5 h-1.5 rounded-full bg-emerald-500 mr-3 shadow-[0_0_5px_#10b981]"></span>
+<span class="text-sm font-mono text-slate-300 group-hover:text-white">Main Cold Storage</span>
+</div>
+</li>
+<li class="group cursor-pointer">
+<div class="flex items-center p-2 rounded bg-card-bg border border-slate-800 hover:border-primary/50 transition-colors">
+<span class="w-1.5 h-1.5 rounded-full bg-emerald-500 mr-3 shadow-[0_0_5px_#10b981]"></span>
+<span class="text-sm font-mono text-slate-300 group-hover:text-white">Autopsy Room A</span>
+</div>
+</li>
+</ul>
+</div>
+<!-- Sector Group -->
+<div>
+<div class="flex justify-between items-center mb-2">
+<h3 class="text-xs text-slate-400 font-bold uppercase tracking-wider">Admin Wing</h3>
+<span class="text-[10px] bg-slate-800 text-slate-400 px-1 rounded">OFFLINE</span>
+</div>
+<div class="p-3 border border-dashed border-slate-800 rounded text-center">
+<span class="text-xs text-slate-600">NO SIGNAL DETECTED</span>
+</div>
+</div>
+</div>
+<!-- Mini Map Placeholder -->
+<div class="h-48 bg-black border-t border-primary/20 relative p-2 overflow-hidden">
+<div class="absolute top-2 left-2 z-10 text-[10px] text-primary bg-black/80 px-1">FLOOR MAP // LIVE</div>
+<img class="w-full h-full object-cover opacity-30 grayscale contrast-150" data-alt="Abstract dark grid map with glowing green lines representing a floor plan" data-location="Psychiatric Ward Map" src="https://lh3.googleusercontent.com/aida-public/AB6AXuB1Lhmn8Nb09dOdCMWvNFfdEHfnDHxY9OBtPSKI1i7EAbXtMbsoVzSzIBM6q_t284MCNp5wtCUqyCRF1TEiHD2xTOmYFNYOtH5KV6kCJYMOpxelLMvmTdCeX7ZsKw5iHHpqBKIBZUmhSyAFAgbFnciME0S6saf3KoRdJ7UD03X1Vq41dGCyCe8_GeQGLEI294_q8zOhBXbvvOtaYSk-ZmtnEYXtP6Ky5qyvrONOsgJYSUc5cjLDRkQtz4pyaMd7UbgEMVErhlR9SRg"/>
+<!-- Map Overlay Graphics -->
+<div class="absolute inset-0 border border-primary/10 m-2 pointer-events-none flex items-center justify-center">
+<div class="w-2 h-2 bg-primary rounded-full animate-ping absolute top-1/3 left-1/4"></div>
+<div class="w-1 h-1 bg-white rounded-full absolute top-1/3 left-1/4"></div>
+<div class="w-1 h-1 bg-emerald-500 rounded-full absolute bottom-1/4 right-1/3"></div>
+</div>
+</div>
+</aside>
+<!-- Main Content: Agent Grid -->
+<main class="flex-1 bg-background-dark p-6 overflow-y-auto">
+<div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+<!-- Agent Card 01: Critical -->
+<div class="bg-card-bg border border-primary shadow-[0_0_15px_rgba(234,42,51,0.15)] rounded overflow-hidden flex flex-col h-[420px] relative group">
+<div class="absolute top-0 right-0 p-2 z-20">
+<span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-bold bg-primary text-white animate-pulse">
+                            CRITICAL
+                        </span>
+</div>
+<!-- Header -->
+<div class="px-4 py-3 border-b border-primary/30 flex justify-between items-center bg-gradient-to-r from-primary/20 to-transparent">
+<div class="flex items-center gap-2">
+<span class="material-icons text-primary text-sm">warning</span>
+<h3 class="font-bold text-white tracking-wider">AGENT_04</h3>
+</div>
+<span class="font-mono text-xs text-primary/80">ID: #8821-X</span>
+</div>
+<!-- Visual Feed -->
+<div class="relative h-48 bg-black w-full overflow-hidden border-b border-primary/20">
+<div class="absolute top-2 left-2 z-10 flex gap-1">
+<div class="w-1 h-1 bg-red-500"></div>
+<div class="w-1 h-1 bg-red-500"></div>
+<div class="text-[9px] text-red-500 font-mono leading-none ml-1">REC •</div>
+</div>
+<img class="w-full h-full object-cover opacity-60 grayscale contrast-125 group-hover:scale-105 transition-transform duration-700 ease-linear" data-alt="Dark, blurry hallway in an abandoned hospital, grainy texture" src="https://lh3.googleusercontent.com/aida-public/AB6AXuBsqoFu5bQ1wP9c0VH5o3B9saufp4oKpLOiCy5KNLzqwdgepAwo5BNPzAcGQtiroASlKY_t2GBM9FEngLlWrChrwOOBLKExTtGQQSOXs7eve3qjQ_xbIQEufL8vmt9DM3_t5IeyMe86HJSw7bQ3gsb-jhC6O8lswT-NQeN6LEheozEj1gyXyIcOlaW0Lk4a53KV2n_7ctJknwyB-89voQC9AgBP8bfIOPMQAJPY_HZb67fKom_EDT99GsDyGbb3DXMX2dNofFoTLUA"/>
+<div class="absolute inset-0 bg-gradient-to-t from-black via-transparent to-transparent opacity-90"></div>
+<!-- Overlay Data on Image -->
+<div class="absolute bottom-2 left-2 right-2 flex justify-between items-end">
+<div class="text-[10px] font-mono text-slate-400">LOC: ROOM 203</div>
+<div class="text-[10px] font-mono text-primary animate-pulse">NOISE DETECTED</div>
+</div>
+</div>
+<!-- Stats & Ticker -->
+<div class="p-4 flex-1 flex flex-col justify-between">
+<div class="space-y-3">
+<!-- Sync Rate -->
+<div>
+<div class="flex justify-between text-xs mb-1">
+<span class="text-slate-400">SYNC RATE</span>
+<span class="text-slate-200">60%</span>
+</div>
+<div class="h-1.5 w-full bg-slate-800 rounded-full overflow-hidden">
+<div class="h-full bg-yellow-600 w-[60%]"></div>
+</div>
+</div>
+<!-- Sanity -->
+<div>
+<div class="flex justify-between text-xs mb-1">
+<span class="text-primary font-bold">SANITY</span>
+<span class="text-primary font-bold">12%</span>
+</div>
+<div class="h-1.5 w-full bg-slate-800 rounded-full overflow-hidden border border-primary/30">
+<div class="h-full bg-primary w-[12%] animate-pulse shadow-[0_0_10px_#ea2a33]"></div>
+</div>
+</div>
+</div>
+<!-- Action Ticker -->
+<div class="mt-4 bg-black border border-primary/30 p-2 rounded relative overflow-hidden h-14 flex items-center">
+<div class="text-[10px] absolute top-1 left-1 text-primary/50 uppercase">Current Action</div>
+<div class="ticker-wrap mt-2">
+<div class="ticker-move">
+<span class="text-sm font-mono text-primary">&gt;&gt; VIOLATION OF RULE 7 DETECTED &gt;&gt; EVASIVE MANEUVERS INITIATED &gt;&gt; PULSE: 160BPM &gt;&gt; OBJECT APPROACHING FROM VENT &gt;&gt;</span>
+</div>
+</div>
+</div>
+</div>
+</div>
+<!-- Agent Card 02: Stable -->
+<div class="bg-card-bg border border-slate-700/50 hover:border-primary/50 transition-colors rounded overflow-hidden flex flex-col h-[420px] relative group">
+<!-- Header -->
+<div class="px-4 py-3 border-b border-slate-700/50 flex justify-between items-center bg-slate-800/20">
+<div class="flex items-center gap-2">
+<span class="material-icons text-emerald-500 text-sm">wifi</span>
+<h3 class="font-bold text-white tracking-wider">AGENT_09</h3>
+</div>
+<span class="font-mono text-xs text-slate-500">ID: #9901-A</span>
+</div>
+<!-- Visual Feed -->
+<div class="relative h-48 bg-black w-full overflow-hidden border-b border-slate-700/50">
+<div class="absolute top-2 left-2 z-10 flex gap-1">
+<div class="text-[9px] text-emerald-500 font-mono leading-none ml-1">LIVE •</div>
+</div>
+<img class="w-full h-full object-cover opacity-50 grayscale contrast-125 group-hover:scale-105 transition-transform duration-700 ease-linear" data-alt="Gloomy concrete basement with flickering fluorescent light" src="https://lh3.googleusercontent.com/aida-public/AB6AXuAyQFecnvCYcRXzcnIhzNIk8LffkEE0PCicrLrr_dBwA8002JbMZi3CImXm5fuoNfHUu5ABeZHW_BhzGnQ_GBQV4Jv2SeCCwvkyP3-GSaL3E7RZHS2ashLBUvafBsUw7T5D8zrzmNkUbbl136AY7zm50hDBx55PxC_MwggT63zWLRTAygxHK4kZ3xV1oJGAP9RgGH1Rwh7qNSMp1VsqiFZon0_LlgF_6MItN1Dd5FhClir0nRSyeeMV5QkHJe0vtZZ4smvtz36B6_A"/>
+<div class="absolute inset-0 bg-gradient-to-t from-black via-transparent to-transparent opacity-80"></div>
+<!-- Overlay Data on Image -->
+<div class="absolute bottom-2 left-2 right-2 flex justify-between items-end">
+<div class="text-[10px] font-mono text-slate-400">LOC: MORGUE STORAGE</div>
+<div class="text-[10px] font-mono text-emerald-500">CLEAR</div>
+</div>
+</div>
+<!-- Stats & Ticker -->
+<div class="p-4 flex-1 flex flex-col justify-between">
+<div class="space-y-3">
+<!-- Sync Rate -->
+<div>
+<div class="flex justify-between text-xs mb-1">
+<span class="text-slate-400">SYNC RATE</span>
+<span class="text-slate-200">98%</span>
+</div>
+<div class="h-1.5 w-full bg-slate-800 rounded-full overflow-hidden">
+<div class="h-full bg-emerald-500 w-[98%]"></div>
+</div>
+</div>
+<!-- Sanity -->
+<div>
+<div class="flex justify-between text-xs mb-1">
+<span class="text-slate-400">SANITY</span>
+<span class="text-slate-200">84%</span>
+</div>
+<div class="h-1.5 w-full bg-slate-800 rounded-full overflow-hidden">
+<div class="h-full bg-emerald-600 w-[84%]"></div>
+</div>
+</div>
+</div>
+<!-- Action Ticker -->
+<div class="mt-4 bg-black border border-slate-800 p-2 rounded relative overflow-hidden h-14 flex items-center">
+<div class="text-[10px] absolute top-1 left-1 text-slate-600 uppercase">Current Action</div>
+<div class="text-sm font-mono text-emerald-400 w-full truncate px-1">
+                                &gt;&gt; Investigating locker noise...
+                            </div>
+</div>
+</div>
+</div>
+<!-- Agent Card 03: Offline/Signal Loss -->
+<div class="bg-card-bg border border-slate-700/50 hover:border-primary/50 transition-colors rounded overflow-hidden flex flex-col h-[420px] relative group opacity-70">
+<div class="absolute inset-0 bg-black/40 z-30 pointer-events-none flex items-center justify-center">
+<div class="border border-white/20 bg-black/80 px-4 py-2 text-white font-mono text-sm tracking-widest backdrop-blur-sm">
+                             SIGNAL LOST
+                         </div>
+</div>
+<!-- Header -->
+<div class="px-4 py-3 border-b border-slate-700/50 flex justify-between items-center bg-slate-800/20">
+<div class="flex items-center gap-2">
+<span class="material-icons text-slate-600 text-sm">wifi_off</span>
+<h3 class="font-bold text-slate-400 tracking-wider">AGENT_12</h3>
+</div>
+<span class="font-mono text-xs text-slate-600">ID: #4402-Z</span>
+</div>
+<!-- Visual Feed -->
+<div class="relative h-48 bg-black w-full overflow-hidden border-b border-slate-700/50">
+<!-- Static Noise Effect CSS only -->
+<div class="w-full h-full bg-[url('https://media.giphy.com/media/oEI9uBYSzLpBK/giphy.gif')] bg-cover opacity-20" data-alt="TV Static Noise"></div>
+</div>
+<!-- Stats & Ticker -->
+<div class="p-4 flex-1 flex flex-col justify-between grayscale">
+<div class="space-y-3">
+<div>
+<div class="flex justify-between text-xs mb-1">
+<span class="text-slate-600">SYNC RATE</span>
+<span class="text-slate-600">0%</span>
+</div>
+<div class="h-1.5 w-full bg-slate-800 rounded-full overflow-hidden">
+<div class="h-full bg-slate-700 w-[0%]"></div>
+</div>
+</div>
+<div>
+<div class="flex justify-between text-xs mb-1">
+<span class="text-slate-600">SANITY</span>
+<span class="text-slate-600">--</span>
+</div>
+<div class="h-1.5 w-full bg-slate-800 rounded-full overflow-hidden">
+<div class="h-full bg-slate-700 w-[0%]"></div>
+</div>
+</div>
+</div>
+<div class="mt-4 bg-black border border-slate-800 p-2 rounded h-14 flex items-center justify-center">
+<span class="text-xs text-slate-700 font-mono">ATTEMPTING RECONNECT...</span>
+</div>
+</div>
+</div>
+<!-- Agent Card 04: Combat -->
+<div class="bg-card-bg border border-slate-700/50 hover:border-primary/50 transition-colors rounded overflow-hidden flex flex-col h-[420px] relative group">
+<!-- Header -->
+<div class="px-4 py-3 border-b border-slate-700/50 flex justify-between items-center bg-slate-800/20">
+<div class="flex items-center gap-2">
+<span class="material-icons text-yellow-500 text-sm">bolt</span>
+<h3 class="font-bold text-white tracking-wider">AGENT_07</h3>
+</div>
+<span class="font-mono text-xs text-slate-500">ID: #7712-B</span>
+</div>
+<!-- Visual Feed -->
+<div class="relative h-48 bg-black w-full overflow-hidden border-b border-slate-700/50">
+<div class="absolute top-2 left-2 z-10 flex gap-1">
+<div class="text-[9px] text-yellow-500 font-mono leading-none ml-1">COMBAT •</div>
+</div>
+<img class="w-full h-full object-cover opacity-60 grayscale contrast-125 sepia group-hover:scale-105 transition-transform duration-700 ease-linear" data-alt="Shadowy figure in a dark corridor with minimal lighting" src="https://lh3.googleusercontent.com/aida-public/AB6AXuDrbDqIp7ZwdIUw3XQLBRPN4G2TK07z5tIQXyxDdalA7lpqO45dRoOtjbBao5BXN-EpuKNg_gV4As3MQhZUfayduvsGe6HMq7f9g5gja-NVpmKlYuNACsAb-SLHsNRt1bg_R_CNdpWA-l_u3-7G3d3eFhIjsh7bGnY-qHvdQkPsRJgZnFKEYlldRGRqnh5tFZ11Gr2fZYT0txrrSA6xs8MszdFdi3p-yIkwsK4JKfdR-JBarYZ4WOvL7k9OHXAbzwJN_GKQmUs2PaI"/>
+<div class="absolute inset-0 bg-gradient-to-t from-black via-transparent to-transparent opacity-80"></div>
+<!-- Overlay Data on Image -->
+<div class="absolute bottom-2 left-2 right-2 flex justify-between items-end">
+<div class="text-[10px] font-mono text-slate-400">LOC: STAIRWELL C</div>
+<div class="text-[10px] font-mono text-yellow-500 uppercase">Hostile</div>
+</div>
+</div>
+<!-- Stats & Ticker -->
+<div class="p-4 flex-1 flex flex-col justify-between">
+<div class="space-y-3">
+<!-- Sync Rate -->
+<div>
+<div class="flex justify-between text-xs mb-1">
+<span class="text-slate-400">SYNC RATE</span>
+<span class="text-slate-200">45%</span>
+</div>
+<div class="h-1.5 w-full bg-slate-800 rounded-full overflow-hidden">
+<div class="h-full bg-yellow-600 w-[45%]"></div>
+</div>
+</div>
+<!-- Sanity -->
+<div>
+<div class="flex justify-between text-xs mb-1">
+<span class="text-slate-400">SANITY</span>
+<span class="text-slate-200">55%</span>
+</div>
+<div class="h-1.5 w-full bg-slate-800 rounded-full overflow-hidden">
+<div class="h-full bg-slate-500 w-[55%]"></div>
+</div>
+</div>
+</div>
+<!-- Action Ticker -->
+<div class="mt-4 bg-black border border-slate-800 p-2 rounded relative overflow-hidden h-14 flex items-center">
+<div class="text-[10px] absolute top-1 left-1 text-slate-600 uppercase">Current Action</div>
+<div class="text-sm font-mono text-yellow-500 w-full truncate px-1">
+                                &gt;&gt; Engaging entity with flaslight strobe
+                            </div>
+</div>
+</div>
+</div>
+</div>
+</main>
+<!-- Right Control Panel (Optional small strip) -->
+<aside class="w-16 bg-terminal-bg border-l border-primary/20 flex flex-col items-center py-4 space-y-4 shrink-0 z-20">
+<button class="w-10 h-10 rounded border border-slate-700 bg-slate-800 text-slate-400 hover:text-primary hover:border-primary flex items-center justify-center transition-all group" title="Emergency Stop">
+<span class="material-icons group-hover:animate-pulse">stop_circle</span>
+</button>
+<button class="w-10 h-10 rounded border border-slate-700 bg-slate-800 text-slate-400 hover:text-white hover:border-white flex items-center justify-center transition-all" title="Map View">
+<span class="material-icons">map</span>
+</button>
+<button class="w-10 h-10 rounded border border-slate-700 bg-slate-800 text-slate-400 hover:text-emerald-400 hover:border-emerald-400 flex items-center justify-center transition-all" title="Inject Stimulant">
+<span class="material-icons">vaccines</span>
+</button>
+<div class="flex-1 w-[1px] bg-slate-800 my-2"></div>
+<button class="w-10 h-10 rounded border border-primary/50 bg-primary/10 text-primary hover:bg-primary hover:text-white flex items-center justify-center transition-all animate-pulse" title="System Override">
+<span class="material-icons">warning</span>
+</button>
+</aside>
+</div>
+<!-- Bottom Footer: Anomaly Alert Terminal -->
+<footer class="h-32 bg-black border-t-2 border-primary relative overflow-hidden shrink-0 z-20 shadow-[0_-5px_20px_rgba(0,0,0,0.8)]">
+<div class="absolute top-0 left-0 bg-primary text-black text-[10px] font-bold px-2 py-0.5">ANOMALY LOG</div>
+<div class="h-full p-4 pt-6 overflow-hidden font-mono text-sm leading-relaxed">
+<div class="opacity-30 text-xs text-primary/50 mb-1">-- SYSTEM LOG START --</div>
+<div class="space-y-1">
+<div class="flex gap-4 text-primary/70">
+<span class="opacity-50">[14:02:22]</span>
+<span>BACKGROUND RADIATION LEVELS NORMALIZING IN SECTOR 7.</span>
+</div>
+<div class="flex gap-4 text-primary">
+<span class="opacity-50">[14:02:33]</span>
+<span class="font-bold">ANOMALY DETECTED IN SECTOR 4 - ROOM 203.</span>
+</div>
+<div class="flex gap-4 text-primary/70">
+<span class="opacity-50">[14:02:35]</span>
+<span>CONNECTION INSTABILITY DETECTED ON NODE AGENT_04.</span>
+</div>
+<div class="flex gap-4 text-red-500 animate-pulse">
+<span class="opacity-50">[14:02:40]</span>
+<span class="font-bold uppercase">CRITICAL: AGENT_04 HEART RATE ELEVATED (175 BPM). RULE VIOLATION IMMINENT.</span>
+</div>
+<div class="flex gap-4 text-primary/70">
+<span class="opacity-50">[14:02:42]</span>
+<span>AUTOMATED PROTOCOL "DOOR_LOCK" ENGAGED.</span>
+</div>
+</div>
+</div>
+<!-- Fading gradient at bottom of log -->
+<div class="absolute bottom-0 left-0 w-full h-8 bg-gradient-to-t from-black to-transparent pointer-events-none"></div>
+</footer>
+</body></html>

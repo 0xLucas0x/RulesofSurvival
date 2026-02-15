@@ -24,6 +24,11 @@ enum GameRunStatus {
   FAILED
 }
 
+enum RunActorType {
+  HUMAN
+  AGENT
+}
+
 enum NftTokenStandard {
   ERC721
   ERC1155
@@ -159,6 +164,7 @@ model GameRun {
   id                 String        @id @default(uuid()) @db.Uuid
   userId             String        @db.Uuid @map("user_id")
   status             GameRunStatus @default(ACTIVE)
+  actorType          RunActorType  @default(HUMAN) @map("actor_type")
   startedAt          DateTime      @default(now()) @map("started_at")
   endedAt            DateTime?     @map("ended_at")
   currentTurnNo      Int           @default(0) @map("current_turn_no")
@@ -176,6 +182,7 @@ model GameRun {
 
   @@index([userId, status])
   @@index([startedAt])
+  @@index([status, actorType, updatedAt])
   @@map("game_runs")
 }
 

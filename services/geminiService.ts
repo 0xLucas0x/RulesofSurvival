@@ -1,6 +1,9 @@
 import { DEFAULT_GAME_CONFIG, type GameConfig } from '../gameConfig';
 import type {
+  ActorType,
   AuthUser,
+  BoardEvent,
+  BoardRunSnapshot,
   Choice,
   Evidence,
   GameState,
@@ -227,12 +230,12 @@ export const logoutAuth = async (): Promise<void> => {
   await postJson('/api/v1/auth/logout', {});
 };
 
-export const startRun = async (): Promise<{
+export const startRun = async (actorType: ActorType = 'human'): Promise<{
   summary: RunSummary;
   state: GameState;
   recovered: boolean;
 }> => {
-  return postJson('/api/v1/runs/start', {});
+  return postJson('/api/v1/runs/start', actorType === 'human' ? {} : { actorType });
 };
 
 export const getCurrentRun = async (): Promise<{
@@ -249,6 +252,15 @@ export const getRunDetail = async (runId: string): Promise<{
   state: GameState;
 }> => {
   return getJson(`/api/v1/runs/${runId}`);
+};
+
+export const fetchBoardSnapshot = async (): Promise<{
+  serverTime: string;
+  activeRuns: BoardRunSnapshot[];
+  completedRuns: BoardRunSnapshot[];
+  recentEvents: BoardEvent[];
+}> => {
+  return getJson('/api/v1/board/snapshot');
 };
 
 export const submitRunTurn = async (runId: string, choice: Choice): Promise<{

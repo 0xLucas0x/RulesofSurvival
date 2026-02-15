@@ -6,6 +6,7 @@ interface LandingPageProps {
     onHumanEnter: () => void;
     isHumanEntering?: boolean;
     onAgentEnter: () => void;
+    onBoardEnter?: () => void;
     currentLanguage?: string;
     onLanguageChange?: (lang: string) => void;
     stats?: LandingStats | null;
@@ -15,6 +16,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
     onHumanEnter,
     isHumanEntering = false,
     onAgentEnter,
+    onBoardEnter,
     currentLanguage = 'en',
     onLanguageChange,
     stats,
@@ -99,6 +101,14 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                     </div>
                 </div>
                 <div className="flex items-center gap-6 text-[10px] font-bold tracking-[0.2em] text-gray-400 font-sc">
+                    {onBoardEnter && (
+                        <button
+                            onClick={onBoardEnter}
+                            className="px-2 py-1 border border-cyan-500/40 text-cyan-300 hover:bg-cyan-500/10 transition-colors"
+                        >
+                            {t('landing.live_board')}
+                        </button>
+                    )}
                     <span className="hidden md:inline hover:text-red-500 cursor-pointer transition-colors">{t('landing.database')}</span>
                     <span className="hidden md:inline hover:text-red-500 cursor-pointer transition-colors">{t('landing.personnel')}</span>
                     <span className="hidden md:inline text-red-500 animate-pulse">{t('landing.monitoring')}</span>
