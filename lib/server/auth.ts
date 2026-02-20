@@ -1,8 +1,8 @@
 import crypto from 'crypto';
 import { UserRole, UserStatus } from '@prisma/client';
 import { JWTPayload, SignJWT, jwtVerify } from 'jose';
-import { NextRequest, NextResponse } from 'next/server';
-import { AUTH_COOKIE_NAME, JWT_TTL_SECONDS, getJwtSecret } from './appConfig';
+import { NextRequest } from 'next/server';
+import { JWT_TTL_SECONDS, getJwtSecret } from './appConfig';
 import { db } from './db';
 import { HttpError } from './http';
 
@@ -48,26 +48,6 @@ export const signAuthToken = async (user: { id: string; walletAddress: string; r
     .sign(secret());
 };
 
-export const setAuthCookie = (response: NextResponse, token: string): void => {
-  response.cookies.set(AUTH_COOKIE_NAME, token, {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: 'lax',
-    path: '/',
-    maxAge: JWT_TTL_SECONDS,
-  });
-};
-
-export const clearAuthCookie = (response: NextResponse): void => {
-  response.cookies.set(AUTH_COOKIE_NAME, '', {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: 'lax',
-    path: '/',
-    maxAge: 0,
-  });
-};
-
 export const getAuthUserFromToken = async (token: string): Promise<AuthUser | null> => {
   const { jti, exp, sub } = await verifyAndDecode(token);
 
@@ -90,8 +70,27 @@ export const getAuthUserFromToken = async (token: string): Promise<AuthUser | nu
   };
 };
 
+const getTokenFromRequest = (request: NextRequest): string | null => {
+  const raw = request.headers.get('authorization');
+  if (!raw) {
+    return null;
+  }
+
+  const value = raw.trim();
+  if (!value) {
+    return null;
+  }
+
+  if (value.toLowerCase().startsWith('bearer ')) {
+    const token = value.slice(7).trim();
+    return token || null;
+  }
+
+  return value;
+};
+
 export const getAuthUserFromRequest = async (request: NextRequest): Promise<AuthUser | null> => {
-  const token = request.cookies.get(AUTH_COOKIE_NAME)?.value;
+  const token = getTokenFromRequest(request);
   if (!token) {
     return null;
   }
@@ -120,7 +119,7 @@ export const requireAdmin = async (request: NextRequest): Promise<AuthUser> => {
 };
 
 export const revokeTokenFromRequest = async (request: NextRequest, reason = 'logout'): Promise<void> => {
-  const token = request.cookies.get(AUTH_COOKIE_NAME)?.value;
+  const token = getTokenFromRequest(request);
   if (!token) {
     return;
   }

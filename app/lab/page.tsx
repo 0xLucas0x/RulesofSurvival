@@ -11,7 +11,7 @@ import type {
   StorySummary,
   StoryVersionPayload,
 } from '../../types';
-import { evaluateStory, fetchStoriesAdmin, fetchStoryAdmin } from '../../services/geminiService';
+import { evaluateStory, fetchAuthUser, fetchStoriesAdmin, fetchStoryAdmin, getAuthToken } from '../../services/geminiService';
 import {
   testLabDb,
   type LabGameRecord,
@@ -73,9 +73,13 @@ const postJsonWithTimeout = async <T,>(url: string, payload: Record<string, unkn
     const controller = new AbortController();
     const timer = window.setTimeout(() => controller.abort(), timeoutMs);
     try {
+      const authToken = getAuthToken();
       const response = await fetch(url, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
+        },
         body: JSON.stringify(payload),
         signal: controller.signal,
       });
@@ -246,6 +250,7 @@ const isSpecialRuleDrop = (choice: Choice, narrative = ''): boolean => {
 };
 
 export default function TestLabPage() {
+  const [authChecked, setAuthChecked] = useState(false);
   const [config, setConfig] = useState<LabConfig>(DEFAULT_CONFIG);
   const [runs, setRuns] = useState<LabRunRecord[]>([]);
   const [selectedRunId, setSelectedRunId] = useState<string>('');
@@ -296,6 +301,25 @@ export default function TestLabPage() {
     () => [...liveEvents].sort((a, b) => a.gameIndex - b.gameIndex),
     [liveEvents],
   );
+
+  useEffect(() => {
+    let cancelled = false;
+    const bootstrap = async () => {
+      const user = await fetchAuthUser();
+      if (!user || user.role !== 'admin') {
+        window.location.replace('/');
+        return;
+      }
+      if (!cancelled) {
+        setAuthChecked(true);
+      }
+    };
+
+    void bootstrap();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const refreshRuns = async () => {
     const items = await testLabDb.getRuns();
@@ -350,6 +374,10 @@ export default function TestLabPage() {
   };
 
   useEffect(() => {
+    if (!authChecked) {
+      return;
+    }
+
     const raw = localStorage.getItem('test_lab_config');
     if (raw) {
       try {
@@ -361,7 +389,7 @@ export default function TestLabPage() {
 
     refreshRuns();
     refreshStoryOptions();
-  }, []);
+  }, [authChecked]);
 
   useEffect(() => {
     localStorage.setItem('test_lab_config', JSON.stringify(config));
@@ -615,6 +643,10 @@ export default function TestLabPage() {
   };
 
   const handleStart = async () => {
+    if (!authChecked) {
+      return;
+    }
+
     if (isRunning) {
       return;
     }
@@ -758,6 +790,10 @@ export default function TestLabPage() {
       </div>
     );
   };
+
+  if (!authChecked) {
+    return <div className="min-h-screen bg-black text-gray-200 p-8">Verifying admin access...</div>;
+  }
 
   const runStatusBadge = (status: string) => {
     const map: Record<string, string> = {

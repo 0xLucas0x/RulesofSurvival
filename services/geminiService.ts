@@ -20,6 +20,51 @@ import type {
   StoryVersionSummary,
 } from '../types';
 
+const AUTH_TOKEN_STORAGE_KEY = 'ros_auth_token';
+
+const readAuthToken = (): string | null => {
+  if (typeof window === 'undefined') {
+    return null;
+  }
+  const token = window.localStorage.getItem(AUTH_TOKEN_STORAGE_KEY)?.trim() || '';
+  return token || null;
+};
+
+const writeAuthToken = (token: string): void => {
+  if (typeof window === 'undefined') {
+    return;
+  }
+  const normalized = token.trim();
+  if (!normalized) {
+    window.localStorage.removeItem(AUTH_TOKEN_STORAGE_KEY);
+    return;
+  }
+  window.localStorage.setItem(AUTH_TOKEN_STORAGE_KEY, normalized);
+};
+
+export const clearAuthToken = (): void => {
+  if (typeof window === 'undefined') {
+    return;
+  }
+  window.localStorage.removeItem(AUTH_TOKEN_STORAGE_KEY);
+};
+
+export const getAuthToken = (): string | null => {
+  return readAuthToken();
+};
+
+const withAuthHeaders = (headers?: Record<string, string>): Record<string, string> => {
+  const token = readAuthToken();
+  if (!token) {
+    return headers ? { ...headers } : {};
+  }
+
+  return {
+    ...(headers || {}),
+    Authorization: `Bearer ${token}`,
+  };
+};
+
 const normalizeAuthUser = (input: any): AuthUser => {
   return {
     id: String(input?.id || ''),
@@ -64,9 +109,9 @@ const extractErrorMessage = (status: number, json: Record<string, unknown> | nul
 const postJson = async <T>(url: string, payload: unknown): Promise<T> => {
   const response = await fetch(url, {
     method: 'POST',
-    headers: {
+    headers: withAuthHeaders({
       'Content-Type': 'application/json',
-    },
+    }),
     body: JSON.stringify(payload),
   });
 
@@ -84,9 +129,9 @@ const postJson = async <T>(url: string, payload: unknown): Promise<T> => {
 const putJson = async <T>(url: string, payload: unknown): Promise<T> => {
   const response = await fetch(url, {
     method: 'PUT',
-    headers: {
+    headers: withAuthHeaders({
       'Content-Type': 'application/json',
-    },
+    }),
     body: JSON.stringify(payload),
   });
 
@@ -102,7 +147,24 @@ const putJson = async <T>(url: string, payload: unknown): Promise<T> => {
 };
 
 const getJson = async <T>(url: string): Promise<T> => {
-  const response = await fetch(url);
+  const response = await fetch(url, {
+    headers: withAuthHeaders(),
+  });
+  const { json, rawText } = await readJsonOrText(response);
+  if (!response.ok) {
+    throw new Error(extractErrorMessage(response.status, json, rawText));
+  }
+  if (!json) {
+    throw new Error(`Invalid JSON response from ${url} (HTTP ${response.status})`);
+  }
+  return json as T;
+};
+
+const deleteJson = async <T>(url: string): Promise<T> => {
+  const response = await fetch(url, {
+    method: 'DELETE',
+    headers: withAuthHeaders(),
+  });
   const { json, rawText } = await readJsonOrText(response);
   if (!response.ok) {
     throw new Error(extractErrorMessage(response.status, json, rawText));
@@ -258,6 +320,9 @@ export const evaluateStory = async (payload: {
 };
 
 export const fetchAuthUser = async (): Promise<AuthUser | null> => {
+  if (!readAuthToken()) {
+    return null;
+  }
   try {
     const data = await getJson<{ user: AuthUser | null }>('/api/v1/auth/me');
     if (!data.user) return null;
@@ -272,12 +337,20 @@ export const fetchSiweNonce = async (): Promise<{ nonce: string; chainId: number
 };
 
 export const verifySiweLogin = async (message: string, signature: string): Promise<AuthUser> => {
-  const data = await postJson<{ user: AuthUser }>('/api/v1/auth/verify', { message, signature });
+  const data = await postJson<{ token: string; user: AuthUser }>('/api/v1/auth/verify', { message, signature });
+  if (!data?.token) {
+    throw new Error('Missing auth token in login response');
+  }
+  writeAuthToken(data.token);
   return normalizeAuthUser(data.user);
 };
 
 export const logoutAuth = async (): Promise<void> => {
-  await postJson('/api/v1/auth/logout', {});
+  try {
+    await postJson('/api/v1/auth/logout', {});
+  } finally {
+    clearAuthToken();
+  }
 };
 
 export const startRun = async (
@@ -366,14 +439,7 @@ export const addUnlockWhitelist = async (walletAddress: string, note?: string): 
 };
 
 export const removeUnlockWhitelist = async (walletAddress: string): Promise<Record<string, unknown>> => {
-  const response = await fetch(`/api/v1/admin/unlock-whitelist?walletAddress=${encodeURIComponent(walletAddress)}`, {
-    method: 'DELETE',
-  });
-  const data = await response.json();
-  if (!response.ok) {
-    throw new Error(data?.error || `Request failed: ${response.status}`);
-  }
-  return data;
+  return deleteJson(`/api/v1/admin/unlock-whitelist?walletAddress=${encodeURIComponent(walletAddress)}`);
 };
 
 export const addNftRequirementAdmin = async (payload: Record<string, unknown>): Promise<Record<string, unknown>> => {
@@ -381,14 +447,7 @@ export const addNftRequirementAdmin = async (payload: Record<string, unknown>): 
 };
 
 export const removeNftRequirementAdmin = async (id: string): Promise<Record<string, unknown>> => {
-  const response = await fetch(`/api/v1/admin/nft-requirements?id=${encodeURIComponent(id)}`, {
-    method: 'DELETE',
-  });
-  const data = await response.json();
-  if (!response.ok) {
-    throw new Error(data?.error || `Request failed: ${response.status}`);
-  }
-  return data;
+  return deleteJson(`/api/v1/admin/nft-requirements?id=${encodeURIComponent(id)}`);
 };
 
 export const addTokenRequirementAdmin = async (payload: Record<string, unknown>): Promise<Record<string, unknown>> => {
@@ -396,14 +455,7 @@ export const addTokenRequirementAdmin = async (payload: Record<string, unknown>)
 };
 
 export const removeTokenRequirementAdmin = async (id: string): Promise<Record<string, unknown>> => {
-  const response = await fetch(`/api/v1/admin/token-requirements?id=${encodeURIComponent(id)}`, {
-    method: 'DELETE',
-  });
-  const data = await response.json();
-  if (!response.ok) {
-    throw new Error(data?.error || `Request failed: ${response.status}`);
-  }
-  return data;
+  return deleteJson(`/api/v1/admin/token-requirements?id=${encodeURIComponent(id)}`);
 };
 
 export const fetchStoriesAdmin = async (): Promise<StorySummary[]> => {

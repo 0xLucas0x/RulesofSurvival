@@ -6,7 +6,7 @@ Rules-horror text adventure game built with Next.js + React + TypeScript.
 
 This version includes:
 
-- SIWE wallet auth (`/api/v1/auth/*`) with JWT HttpOnly cookie sessions.
+- SIWE wallet auth (`/api/v1/auth/*`) with JWT bearer sessions.
 - Prisma + Neon(PostgreSQL) persistence for users, runs, turns, config, and stats.
 - Recoverable runs (`/api/v1/runs/*`) with one active run per wallet.
 - Landing statistics + leaderboard APIs.

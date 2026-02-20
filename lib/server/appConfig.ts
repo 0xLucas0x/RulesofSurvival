@@ -1,6 +1,5 @@
 import { DEFAULT_GAME_CONFIG } from '../../gameConfig';
 
-export const AUTH_COOKIE_NAME = 'ros_auth';
 export const JWT_TTL_SECONDS = 60 * 60 * 24 * 30;
 export const SIWE_NONCE_TTL_SECONDS = 60 * 10;
 export const MONAD_TESTNET_CHAIN_ID = 10143;

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { setAuthCookie, signAuthToken } from '../../../../../lib/server/auth';
+import { signAuthToken } from '../../../../../lib/server/auth';
 import { JWT_TTL_SECONDS } from '../../../../../lib/server/appConfig';
 import { db } from '../../../../../lib/server/db';
 import { HttpError } from '../../../../../lib/server/http';
@@ -18,7 +18,8 @@ export async function POST(request: NextRequest) {
 
     const token = await signAuthToken(user);
     const tokenExp = Math.floor(Date.now() / 1000) + JWT_TTL_SECONDS;
-    const response = NextResponse.json({
+    return NextResponse.json({
+      token,
       user: {
         id: user.id,
         walletAddress: user.walletAddress,
@@ -27,8 +28,6 @@ export async function POST(request: NextRequest) {
         isFirstHumanEntry: hasRuns === 0,
       },
     });
-    setAuthCookie(response, token);
-    return response;
   } catch (error: any) {
     const status = error instanceof HttpError ? error.status : 500;
     return NextResponse.json({ error: error?.message || 'Verification failed' }, { status });

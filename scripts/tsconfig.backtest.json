@@ -1,0 +1,21 @@
+{
+  "compilerOptions": {
+    "target": "ES2020",
+    "module": "commonjs",
+    "moduleResolution": "node",
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "strict": false,
+    "noEmit": false,
+    "outDir": "../tmp/backtest-dist",
+    "rootDir": ".."
+  },
+  "include": [
+    "../scripts/backtest-nvidia-director.ts",
+    "../lib/server/aiEngine.ts",
+    "../constants.ts",
+    "../gameConfig.ts",
+    "../types.ts"
+  ]
+}

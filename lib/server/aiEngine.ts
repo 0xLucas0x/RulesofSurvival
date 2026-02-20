@@ -568,6 +568,147 @@ const buildEndgameChoices = (params: {
   ];
 };
 
+type EndingGateProfile = {
+  truePlotItems: number;
+  trueVerifyActions: number;
+  trueRecentVerifyActions: number;
+  trueDeepZone: number;
+  trueSealStability: number;
+  trueThreatMax: number;
+  escapePlotItems: number;
+  escapeVerifyActions: number;
+  escapeRecentVerifyActions: number;
+  escapeSealStability: number;
+  escapeThreatMax: number;
+  allowVictorySealFloor: number;
+  targetVictoryRateHint: string;
+};
+
+type ChongshanRoute = 'seal' | 'verify' | 'escape' | 'unknown';
+type ChongshanEndingTier = 'perfect' | 'normal' | 'pass' | 'fall' | null;
+
+const CHONGSHAN_SEAL_ROUTE_KEYWORDS = ['下潜', '裂缝', '封印', '核心', '祭坛', '地下二层', '重置'];
+const CHONGSHAN_VERIFY_ROUTE_KEYWORDS = ['赵医生', '核验', '核对', '交叉验证', '执行结果', '比对'];
+const CHONGSHAN_ESCAPE_ROUTE_KEYWORDS = ['屋顶', '出口', '撤离', '逃离', '离开医院', '离开'];
+
+const getEndingGateProfile = (
+  directorMode: 'default' | 'lab',
+  storyTitle?: string | null,
+  storySlug?: string | null,
+): EndingGateProfile => {
+  const isChongshan = isChongshanStory(storyTitle, storySlug);
+  const strict = directorMode !== 'lab' || isChongshan;
+
+  if (strict) {
+    return {
+      truePlotItems: 4,
+      trueVerifyActions: 4,
+      trueRecentVerifyActions: 1,
+      trueDeepZone: 3,
+      trueSealStability: 2,
+      trueThreatMax: 3,
+      escapePlotItems: 2,
+      escapeVerifyActions: 3,
+      escapeRecentVerifyActions: 1,
+      escapeSealStability: 2,
+      escapeThreatMax: 3,
+      allowVictorySealFloor: 0,
+      targetVictoryRateHint: '10%-15%',
+    };
+  }
+
+  return {
+    truePlotItems: 3,
+    trueVerifyActions: 2,
+    trueRecentVerifyActions: 0,
+    trueDeepZone: 2,
+    trueSealStability: 0,
+    trueThreatMax: 4,
+    escapePlotItems: 1,
+    escapeVerifyActions: 2,
+    escapeRecentVerifyActions: 0,
+    escapeSealStability: 0,
+    escapeThreatMax: 4,
+    allowVictorySealFloor: -1,
+    targetVictoryRateHint: '30%-45%',
+  };
+};
+
+const detectChongshanRoute = (actionText: string): ChongshanRoute => {
+  if (textIncludesAny(actionText, CHONGSHAN_VERIFY_ROUTE_KEYWORDS)) {
+    return 'verify';
+  }
+  if (textIncludesAny(actionText, CHONGSHAN_SEAL_ROUTE_KEYWORDS)) {
+    return 'seal';
+  }
+  if (textIncludesAny(actionText, CHONGSHAN_ESCAPE_ROUTE_KEYWORDS)) {
+    return 'escape';
+  }
+  return 'unknown';
+};
+
+const buildChongshanEndingHint = (tier: Exclude<ChongshanEndingTier, null>): string => {
+  if (tier === 'perfect') {
+    return '结局判定：完美结局「封印重启」——你完成了全部校验闭环，裂缝被稳定回卷。';
+  }
+  if (tier === 'normal') {
+    return '结局判定：普通结局「残缺封印」——主封印成立，但你的记忆与身份已被严重侵蚀。';
+  }
+  if (tier === 'pass') {
+    return '结局判定：及格结局「带伤逃离」——你活着离开了崇山医院，但封印仍在缓慢衰减。';
+  }
+  return '结局判定：堕入结局「红衣轮值」——校验链断裂，你成为下一轮守门人。';
+};
+
+const resolveChongshanEndingTier = (params: {
+  directorState: DifficultyDirectorState;
+  currentAction: string;
+  turnNumber: number;
+  projectedSanity: number;
+  hardEndingTurn: number;
+  hasEndingIntent: boolean;
+  isModelEnding: boolean;
+}): ChongshanEndingTier => {
+  const { directorState, currentAction, turnNumber, projectedSanity, hardEndingTurn, hasEndingIntent, isModelEnding } = params;
+
+  const route = detectChongshanRoute(currentAction);
+  const meetsPerfect = route === 'seal'
+    && directorState.plotItemCount >= 4
+    && directorState.strictVerificationActions >= 5
+    && directorState.deepZoneProgress >= 3
+    && directorState.sealStability >= 2
+    && directorState.threatClock <= 3;
+  const meetsNormalSeal = route === 'seal'
+    && directorState.plotItemCount >= 2
+    && directorState.strictVerificationActions >= 3
+    && directorState.deepZoneProgress >= 2
+    && directorState.sealStability >= 0
+    && directorState.threatClock <= 4;
+  const meetsNormalVerify = route === 'verify'
+    && directorState.plotItemCount >= 2
+    && directorState.strictVerificationActions >= 3
+    && directorState.deepZoneProgress >= 2
+    && directorState.sealStability >= 0
+    && directorState.threatClock <= 4;
+  const meetsPassEscape = route === 'escape'
+    && directorState.strictVerificationActions >= 2
+    && directorState.sealStability >= -1
+    && directorState.threatClock <= 4;
+
+  const meetsAnyVictoryTier = meetsPerfect || meetsNormalSeal || meetsNormalVerify || meetsPassEscape;
+  if (meetsPerfect) return 'perfect';
+  if (meetsNormalSeal || meetsNormalVerify) return 'normal';
+  if (meetsPassEscape) return 'pass';
+
+  const reachedEndingWindow = turnNumber >= directorState.minEndingTurn;
+  const mustResolveNow = turnNumber >= hardEndingTurn || projectedSanity <= 0 || isModelEnding;
+  if ((reachedEndingWindow && hasEndingIntent && !meetsAnyVictoryTier) || mustResolveNow) {
+    return 'fall';
+  }
+
+  return null;
+};
+
 const appendNarrativeHint = (narrative: string, hint: string): string => {
   if (narrative.includes(hint)) {
     return narrative;
@@ -627,9 +768,10 @@ const analyzeDifficultyDirectorState = (
   const recentWindow = actionRecords.slice(-4);
   const recentVerificationActions = recentWindow.filter((record) => textIncludesAny(record.text, VERIFY_KEYWORDS)).length;
   const sealStability = clamp((ruleVerificationProgress * 2) + deepZoneProgress + Math.min(plotItemCount, 3) - threatClock, -3, 6);
-  const minEndingTurn = directorMode === 'lab'
-    ? Math.max(8, maxTurns - 3)
-    : Math.max(12, maxTurns - 1);
+  const strictEndingWindow = directorMode !== 'lab' || isChongshanStory(storyTitle, storySlug);
+  const minEndingTurn = strictEndingWindow
+    ? Math.max(11, maxTurns - 2)
+    : Math.max(8, maxTurns - 3);
 
   return {
     turnNumber,
@@ -652,25 +794,34 @@ const analyzeDifficultyDirectorState = (
   };
 };
 
-const buildDirectorContext = (state: DifficultyDirectorState, directorMode: 'default' | 'lab'): string => {
+const buildDirectorContext = (
+  state: DifficultyDirectorState,
+  directorMode: 'default' | 'lab',
+  storyTitle?: string | null,
+  storySlug?: string | null,
+): string => {
   const isLab = directorMode === 'lab';
-  const canAttemptTrueEnding = state.plotItemCount >= (isLab ? 3 : 4)
-    && state.strictVerificationActions >= (isLab ? 2 : 4)
-    && state.recentVerificationActions >= (isLab ? 0 : 1)
-    && state.deepZoneProgress >= (isLab ? 2 : 3)
+  const gate = getEndingGateProfile(directorMode, storyTitle, storySlug);
+  const profileLabel = isLab && gate.targetVictoryRateHint === '30%-45%'
+    ? 'HIDDEN, LAB-BALANCED'
+    : 'HIDDEN, STRICT';
+  const canAttemptTrueEnding = state.plotItemCount >= gate.truePlotItems
+    && state.strictVerificationActions >= gate.trueVerifyActions
+    && state.recentVerificationActions >= gate.trueRecentVerifyActions
+    && state.deepZoneProgress >= gate.trueDeepZone
     && (!isLab ? state.hasRitualIntent : true)
-    && state.sealStability >= (isLab ? 0 : 2)
-    && state.threatClock <= (isLab ? 4 : 3);
+    && state.sealStability >= gate.trueSealStability
+    && state.threatClock <= gate.trueThreatMax;
   const canAttemptEscapeEnding = state.hasExitIntent
-    && state.strictVerificationActions >= (isLab ? 2 : 3)
-    && state.recentVerificationActions >= (isLab ? 0 : 1)
-    && state.plotItemCount >= (isLab ? 1 : 2)
-    && state.sealStability >= (isLab ? 0 : 2)
-    && state.threatClock <= (isLab ? 4 : 3);
+    && state.strictVerificationActions >= gate.escapeVerifyActions
+    && state.recentVerificationActions >= gate.escapeRecentVerifyActions
+    && state.plotItemCount >= gate.escapePlotItems
+    && state.sealStability >= gate.escapeSealStability
+    && state.threatClock <= gate.escapeThreatMax;
   const knownRulesReliability = state.ruleVerificationProgress >= 2 ? 'MEDIUM/HIGH (部分已校验)' : 'LOW (多数守则尚未校验)';
 
   return `
-Dynamic Difficulty Director (${isLab ? 'HIDDEN, LAB-BALANCED' : 'HIDDEN, STRICT'}):
+Dynamic Difficulty Director (${profileLabel}):
 - Threat Clock: ${state.threatClock}/6 (higher = environment pressure, blocked routes, fake clues)
 - Seal Stability: ${state.sealStability} (<=0 means unstable seal, do NOT give clean victory)
 - Rule Verification Progress: ${state.ruleVerificationProgress}/3
@@ -686,13 +837,11 @@ Dynamic Difficulty Director (${isLab ? 'HIDDEN, LAB-BALANCED' : 'HIDDEN, STRICT'
 
 Director Constraints:
 1) Do NOT treat all known rules as automatically true. At least one rule should be uncertain until verified by evidence cross-check.
-2) From turn 4 onward, include a verification-oriented branch every turn until Strict Verification Actions >= ${isLab ? 2 : 4}.
+2) From turn 4 onward, include a verification-oriented branch every turn until Strict Verification Actions >= ${gate.trueVerifyActions}.
 3) Keep major evidence sparse: usually once every 3 turns unless player takes a high-risk verified route.
 4) High Threat Clock should increase route denial / fake guidance / timing pressure, not just sanity damage.
 5) Do NOT output any ending before Minimum ending turn unless sanity drops to 0.
-6) ${isLab
-    ? 'For lab stress tests, target a moderate victory rate (roughly 30%-45%) while keeping risk meaningful.'
-    : 'For this difficulty mode, target low victory rate (roughly 10%-15%) by enforcing hard ending gates.'}
+6) For this mode, target low victory rate (roughly ${gate.targetVictoryRateHint}) by enforcing hard ending gates.
 7) If ending requirements are not met, do NOT output victory. Provide partial progress or failure outcome instead.`;
 };
 
@@ -710,7 +859,8 @@ const applyDifficultyDirector = ({
   storyTitle,
   storySlug,
 }: DifficultyDirectorInput): GeminiResponse => {
-  const isLab = directorMode === 'lab';
+  const isChongshan = isChongshanStory(storyTitle, storySlug);
+  const gate = getEndingGateProfile(directorMode, storyTitle, storySlug);
   const hardEndingTurn = maxTurns + ENDING_GRACE_TURNS;
   const tuned: GeminiResponse = {
     ...response,
@@ -723,24 +873,32 @@ const applyDifficultyDirector = ({
   };
 
   const actionType = directorState.lastActionType;
+  const plotItemKeywords = buildPlotItemKeywords(storyTitle, storySlug);
   const projectedSanity = clamp(currentSanity + (Number(tuned.sanity_change) || 0), 0, 100);
   const expectedEvidenceCap = Math.max(2, Math.floor((turnNumber + 2) / 4) + 1);
   const allowHeavyDiscovery = actionType === 'risky' || (actionType === 'investigate' && directorState.strictVerificationActions >= 2);
   const isEvidenceWindow = turnNumber <= 2
     || turnNumber % 3 === 0
     || (actionType === 'risky' && directorState.strictVerificationActions >= 2 && turnNumber % 2 === 0);
+  const hasCriticalEvidence = tuned.new_evidence.some((item) =>
+    item.type === 'key'
+    || item.type === 'item'
+    || looksLikePlotItem(item, plotItemKeywords));
+  const preserveCriticalEvidence = isChongshan
+    && hasCriticalEvidence
+    && (turnNumber >= directorState.minEndingTurn - 2 || actionType === 'risky');
 
-  if (tuned.new_evidence.length > 0 && !isEvidenceWindow) {
+  if (tuned.new_evidence.length > 0 && !isEvidenceWindow && !preserveCriticalEvidence) {
     tuned.new_evidence = [buildDecoyEvidence(turnNumber)];
     tuned.narrative = appendNarrativeHint(tuned.narrative, '你拿到的是一份看似关键却互相矛盾的记录，它会拖慢判断。');
   }
 
-  if (tuned.new_evidence.length > 0 && directorState.threatClock >= 4 && actionType !== 'risky') {
+  if (tuned.new_evidence.length > 0 && directorState.threatClock >= 4 && actionType !== 'risky' && !preserveCriticalEvidence) {
     tuned.new_evidence = [buildDecoyEvidence(turnNumber)];
     tuned.narrative = appendNarrativeHint(tuned.narrative, '威胁升级后，低风险搜查只会回收被投放的伪线索。');
   }
 
-  if (tuned.new_evidence.length > 0 && inventory.length >= expectedEvidenceCap && !allowHeavyDiscovery) {
+  if (tuned.new_evidence.length > 0 && inventory.length >= expectedEvidenceCap && !allowHeavyDiscovery && !preserveCriticalEvidence) {
     tuned.new_evidence = [buildDecoyEvidence(turnNumber)];
     tuned.narrative = appendNarrativeHint(tuned.narrative, '你翻找到的只是互相矛盾的旧记录，尚不足以形成新线索。');
   }
@@ -750,27 +908,27 @@ const applyDifficultyDirector = ({
     tuned.new_rules = [];
   }
 
-  const canAttemptTrueEnding = directorState.plotItemCount >= (isLab ? 3 : 4)
-    && directorState.strictVerificationActions >= (isLab ? 2 : 4)
-    && directorState.recentVerificationActions >= (isLab ? 0 : 1)
-    && directorState.deepZoneProgress >= (isLab ? 2 : 3)
-    && directorState.sealStability >= (isLab ? 0 : 2)
-    && directorState.threatClock <= (isLab ? 4 : 3);
+  const canAttemptTrueEnding = directorState.plotItemCount >= gate.truePlotItems
+    && directorState.strictVerificationActions >= gate.trueVerifyActions
+    && directorState.recentVerificationActions >= gate.trueRecentVerifyActions
+    && directorState.deepZoneProgress >= gate.trueDeepZone
+    && directorState.sealStability >= gate.trueSealStability
+    && directorState.threatClock <= gate.trueThreatMax;
   const canAttemptEscapeEnding = directorState.hasExitIntent
-    && directorState.strictVerificationActions >= (isLab ? 2 : 3)
-    && directorState.recentVerificationActions >= (isLab ? 0 : 1)
-    && directorState.plotItemCount >= (isLab ? 1 : 2)
-    && directorState.sealStability >= (isLab ? 0 : 2)
-    && directorState.threatClock <= (isLab ? 4 : 3);
+    && directorState.strictVerificationActions >= gate.escapeVerifyActions
+    && directorState.recentVerificationActions >= gate.escapeRecentVerifyActions
+    && directorState.plotItemCount >= gate.escapePlotItems
+    && directorState.sealStability >= gate.escapeSealStability
+    && directorState.threatClock <= gate.escapeThreatMax;
   const hasEndingIntent = textIncludesAny(currentAction, ENDING_ACTION_KEYWORDS) || textIncludesAny(tuned.narrative, ENDING_ACTION_KEYWORDS);
   const baseAllowVictory = turnNumber >= directorState.minEndingTurn
     && hasEndingIntent
-    && directorState.sealStability >= (isLab ? -1 : 0)
+    && directorState.sealStability >= gate.allowVictorySealFloor
     && (canAttemptTrueEnding || canAttemptEscapeEnding);
   const emergencyAllowVictory = turnNumber >= maxTurns
     && hasEndingIntent
-    && directorState.plotItemCount >= (isLab ? 1 : 2)
-    && directorState.strictVerificationActions >= (isLab ? 1 : 2)
+    && directorState.plotItemCount >= Math.max(1, gate.escapePlotItems - 1)
+    && directorState.strictVerificationActions >= Math.max(1, gate.escapeVerifyActions - 1)
     && directorState.sealStability >= -1;
   const allowVictory = baseAllowVictory || emergencyAllowVictory;
 
@@ -781,7 +939,30 @@ const applyDifficultyDirector = ({
     tuned.narrative = appendNarrativeHint(tuned.narrative, '你还没完成最基本的封印校验，现在收束只会导致误判。');
   }
 
-  if (tuned.is_victory && !allowVictory) {
+  let lockedChongshanVictory = false;
+  if (isChongshan) {
+    const tier = resolveChongshanEndingTier({
+      directorState,
+      currentAction,
+      turnNumber,
+      projectedSanity,
+      hardEndingTurn,
+      hasEndingIntent,
+      isModelEnding: tuned.is_game_over,
+    });
+    if (tier === 'perfect' || tier === 'normal' || tier === 'pass') {
+      tuned.is_game_over = true;
+      tuned.is_victory = true;
+      tuned.narrative = appendNarrativeHint(tuned.narrative, buildChongshanEndingHint(tier));
+      lockedChongshanVictory = true;
+    } else if (tier === 'fall') {
+      tuned.is_game_over = true;
+      tuned.is_victory = false;
+      tuned.narrative = appendNarrativeHint(tuned.narrative, buildChongshanEndingHint(tier));
+    }
+  }
+
+  if (tuned.is_victory && !allowVictory && !lockedChongshanVictory) {
     tuned.is_victory = false;
     tuned.is_game_over = turnNumber >= hardEndingTurn || projectedSanity <= 0;
     tuned.narrative = appendNarrativeHint(tuned.narrative, '你突然意识到：封印校验步骤尚未完成，贸然收束只会让裂缝反扑。');
@@ -813,7 +994,7 @@ const applyDifficultyDirector = ({
 
   const shouldInjectVerificationChoice = turnNumber >= 4
     && !tuned.is_game_over
-    && directorState.strictVerificationActions < (isLab ? 2 : 4)
+    && directorState.strictVerificationActions < gate.trueVerifyActions
     && !hasVerificationChoice(tuned.choices);
   if (shouldInjectVerificationChoice) {
     const verificationChoice = buildVerificationChoice();
@@ -832,7 +1013,12 @@ const applyDifficultyDirector = ({
     tuned.narrative = appendNarrativeHint(tuned.narrative, '你越过验证步骤的次数越多，封锁区的路径就越快重排。');
   }
 
-  tuned.choices = ensureChoiceShape(tuned.choices, tuned.location_name);
+  if (projectedSanity <= 0 && !tuned.is_victory) {
+    tuned.is_game_over = true;
+    tuned.is_victory = false;
+  }
+
+  tuned.choices = tuned.is_game_over ? [] : ensureChoiceShape(tuned.choices, tuned.location_name);
   return tuned;
 };
 
@@ -883,7 +1069,7 @@ export const generateNextTurnServer = async ({
     storyTitle,
     storySlug,
   );
-  const directorContext = buildDirectorContext(directorState, directorMode);
+  const directorContext = buildDirectorContext(directorState, directorMode, storyTitle, storySlug);
 
   const prompt = `
 Current Turn Number: ${turnNumber} / Target: ${gameConfig.maxTurns}

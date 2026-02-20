@@ -24,6 +24,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
     const { t } = useTranslation();
     const [hoveredSection, setHoveredSection] = useState<'human' | 'agent' | null>(null);
     const [currentTime, setCurrentTime] = useState('');
+    const [skillCommand, setSkillCommand] = useState('curl -s /skill.md');
 
     useEffect(() => {
         const timer = setInterval(() => {
@@ -32,6 +33,14 @@ export const LandingPage: React.FC<LandingPageProps> = ({
         }, 1000);
         return () => clearInterval(timer);
     }, [currentLanguage]);
+
+    useEffect(() => {
+        if (typeof window === 'undefined') {
+            return;
+        }
+        const skillUrl = `${window.location.origin}/skill.md`;
+        setSkillCommand(`curl -s ${skillUrl}`);
+    }, []);
 
     return (
         <div className="relative min-h-screen w-screen overflow-hidden bg-black text-gray-300 font-mono flex flex-col">
@@ -256,13 +265,13 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                                         <span>BASH</span>
                                     </div>
                                     <code className="block text-teal-300 break-all pr-6">
-                                        curl -s https://rulesofsurvival.game/skill.md
+                                        {skillCommand}
                                     </code>
                                     <button
                                         className="absolute bottom-0.5 right-2 p-1 hover:bg-teal-500/20 rounded text-teal-500 transition-colors z-20"
                                         onClick={(e) => {
                                             e.stopPropagation();
-                                            navigator.clipboard.writeText("curl -s https://rulesofsurvival.game/skill.md");
+                                            navigator.clipboard.writeText(skillCommand);
                                         }}
                                         title="Copy Command"
                                     >

@@ -5,6 +5,7 @@ import {
   addNftRequirementAdmin,
   addTokenRequirementAdmin,
   addUnlockWhitelist,
+  fetchAuthUser,
   fetchAdminConfig,
   fetchUnlockPolicy,
   removeNftRequirementAdmin,
@@ -16,6 +17,7 @@ import {
 import { StoryManager } from '../../components/admin/StoryManager';
 
 export default function AdminPage() {
+  const [authChecked, setAuthChecked] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -28,7 +30,7 @@ export default function AdminPage() {
   const [newNft, setNewNft] = useState({ contractAddress: '', tokenStandard: 'erc721', tokenId: '', minBalance: '1' });
   const [newToken, setNewToken] = useState({ contractAddress: '', minBalanceRaw: '1', decimals: 18 });
 
-  const loadAll = async () => {
+  const loadAll = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
@@ -40,11 +42,28 @@ export default function AdminPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
-    void loadAll();
-  }, []);
+    let cancelled = false;
+    const bootstrap = async () => {
+      const user = await fetchAuthUser();
+      if (!user || user.role !== 'admin') {
+        window.location.replace('/');
+        return;
+      }
+      if (cancelled) {
+        return;
+      }
+      setAuthChecked(true);
+      await loadAll();
+    };
+
+    void bootstrap();
+    return () => {
+      cancelled = true;
+    };
+  }, [loadAll]);
 
   const gameConfig = useMemo(() => {
     return config?.gameConfig || {};
@@ -99,7 +118,7 @@ export default function AdminPage() {
     }
   }, []);
 
-  if (loading) {
+  if (!authChecked || loading) {
     return <div className="min-h-screen bg-black text-gray-200 p-8">Loading admin panel...</div>;
   }
 
