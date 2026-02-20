@@ -48,6 +48,18 @@ enum UnlockLogic {
   ANY
 }
 
+enum StoryLifecycleStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}
+
+enum StoryVersionSource {
+  MANUAL
+  AI
+  SEED
+}
+
 model User {
   id             String               @id @default(uuid()) @db.Uuid
   walletAddress  String               @unique @map("wallet_address")
@@ -94,20 +106,74 @@ model JwtRevocation {
 }
 
 model RuntimeConfig {
-  id            String       @id @default("default")
-  llmProvider   LlmProvider  @default(GEMINI) @map("llm_provider")
-  llmBaseUrl    String?      @map("llm_base_url")
-  llmApiKeyEnc  String?      @map("llm_api_key_enc")
-  llmModel      String?      @map("llm_model")
-  imageProvider ImageProvider @default(POLLINATIONS) @map("image_provider")
-  imageBaseUrl  String?      @map("image_base_url")
-  imageApiKeyEnc String?     @map("image_api_key_enc")
-  imageModel    String?      @map("image_model")
-  gameConfigJson Json        @map("game_config_json")
-  updatedAt     DateTime     @updatedAt @map("updated_at")
-  updatedBy     String?      @db.Uuid @map("updated_by")
+  id             String        @id @default("default")
+  llmProvider    LlmProvider   @default(GEMINI) @map("llm_provider")
+  llmBaseUrl     String?       @map("llm_base_url")
+  llmApiKeyEnc   String?       @map("llm_api_key_enc")
+  llmModel       String?       @map("llm_model")
+  imageProvider  ImageProvider @default(POLLINATIONS) @map("image_provider")
+  imageBaseUrl   String?       @map("image_base_url")
+  imageApiKeyEnc String?       @map("image_api_key_enc")
+  imageModel     String?       @map("image_model")
+  gameConfigJson Json          @map("game_config_json")
+  currentStoryId String?       @db.Uuid @map("current_story_id")
+  updatedAt      DateTime      @updatedAt @map("updated_at")
+  updatedBy      String?       @db.Uuid @map("updated_by")
+  currentStory   Story?        @relation("RuntimeCurrentStory", fields: [currentStoryId], references: [id], onDelete: SetNull)
 
   @@map("runtime_config")
+}
+
+model Story {
+  id               String               @id @default(uuid()) @db.Uuid
+  slug             String               @unique
+  title            String
+  summary          String?
+  sourceLocale     String               @default("zh-CN") @map("source_locale")
+  status           StoryLifecycleStatus @default(DRAFT)
+  draftVersionId   String?              @db.Uuid @map("draft_version_id")
+  publishedVersionId String?            @db.Uuid @map("published_version_id")
+  llmProvider      LlmProvider?         @map("llm_provider")
+  llmBaseUrl       String?              @map("llm_base_url")
+  llmApiKeyEnc     String?              @map("llm_api_key_enc")
+  llmModel         String?              @map("llm_model")
+  createdBy        String?              @db.Uuid @map("created_by")
+  updatedBy        String?              @db.Uuid @map("updated_by")
+  publishedBy      String?              @db.Uuid @map("published_by")
+  publishedAt      DateTime?            @map("published_at")
+  archivedAt       DateTime?            @map("archived_at")
+  createdAt        DateTime             @default(now()) @map("created_at")
+  updatedAt        DateTime             @updatedAt @map("updated_at")
+  versions         StoryVersion[]       @relation("StoryVersions")
+  draftVersion     StoryVersion?        @relation("StoryDraftVersion", fields: [draftVersionId], references: [id], onDelete: SetNull)
+  publishedVersion StoryVersion?        @relation("StoryPublishedVersion", fields: [publishedVersionId], references: [id], onDelete: SetNull)
+  runtimeConfigs   RuntimeConfig[]      @relation("RuntimeCurrentStory")
+  runs             GameRun[]
+
+  @@index([status, updatedAt])
+  @@map("stories")
+}
+
+model StoryVersion {
+  id                   String             @id @default(uuid()) @db.Uuid
+  storyId              String             @db.Uuid @map("story_id")
+  versionNo            Int                @map("version_no")
+  source               StoryVersionSource @default(MANUAL)
+  changeNote           String?            @map("change_note")
+  initialStateJson     Json               @map("initial_state_json")
+  instructionTemplateRaw String           @map("instruction_template_raw")
+  instructionSectionsJson Json            @map("instruction_sections_json")
+  generationInputJson  Json?              @map("generation_input_json")
+  createdBy            String?            @db.Uuid @map("created_by")
+  createdAt            DateTime           @default(now()) @map("created_at")
+  story                Story              @relation("StoryVersions", fields: [storyId], references: [id], onDelete: Cascade)
+  asDraftFor           Story[]            @relation("StoryDraftVersion")
+  asPublishedFor       Story[]            @relation("StoryPublishedVersion")
+  runsAtStart          GameRun[]          @relation("RunStoryVersionAtStart")
+
+  @@unique([storyId, versionNo])
+  @@index([storyId, createdAt])
+  @@map("story_versions")
 }
 
 model ImageUnlockPolicy {
@@ -163,6 +229,9 @@ model TokenRequirement {
 model GameRun {
   id                 String        @id @default(uuid()) @db.Uuid
   userId             String        @db.Uuid @map("user_id")
+  storyId            String?       @db.Uuid @map("story_id")
+  storyVersionIdAtStart String?    @db.Uuid @map("story_version_id_at_start")
+  outputLocale       String        @default("zh-CN") @map("output_locale")
   status             GameRunStatus @default(ACTIVE)
   actorType          RunActorType  @default(HUMAN) @map("actor_type")
   startedAt          DateTime      @default(now()) @map("started_at")
@@ -177,10 +246,13 @@ model GameRun {
   createdAt          DateTime      @default(now()) @map("created_at")
   updatedAt          DateTime      @updatedAt @map("updated_at")
   user               User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  story              Story?        @relation(fields: [storyId], references: [id], onDelete: SetNull)
+  storyVersionAtStart StoryVersion? @relation("RunStoryVersionAtStart", fields: [storyVersionIdAtStart], references: [id], onDelete: SetNull)
   turns              GameTurn[]
   result             RunResult?
 
   @@index([userId, status])
+  @@index([storyId, status])
   @@index([startedAt])
   @@index([status, actorType, updatedAt])
   @@map("game_runs")

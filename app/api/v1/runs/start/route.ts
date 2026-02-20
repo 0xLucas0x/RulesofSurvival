@@ -15,12 +15,20 @@ export async function POST(request: NextRequest) {
     }
 
     const actorType = parseActorTypeInput(body?.actorType);
+    if (body?.storyId && user.role !== 'ADMIN') {
+      throw new HttpError(403, 'Only admin can specify storyId');
+    }
+
     const result = await startOrGetActiveRun(
       {
         id: user.id,
         walletAddress: user.walletAddress,
       },
       actorType,
+      {
+        storyId: typeof body?.storyId === 'string' ? body.storyId : undefined,
+        outputLocale: typeof body?.outputLocale === 'string' ? body.outputLocale : undefined,
+      },
     );
     return NextResponse.json(result);
   } catch (error: any) {

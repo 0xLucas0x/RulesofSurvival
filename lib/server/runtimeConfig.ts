@@ -13,6 +13,7 @@ export type RuntimeConfigResolved = {
   imageApiKey?: string | null;
   imageModel?: string | null;
   gameConfig: GameConfig;
+  currentStoryId?: string | null;
 };
 
 type RuntimeConfigUpdateInput = Partial<{
@@ -25,6 +26,7 @@ type RuntimeConfigUpdateInput = Partial<{
   imageApiKey: string | null;
   imageModel: string | null;
   gameConfig: Partial<GameConfig>;
+  currentStoryId: string | null;
 }>;
 
 const toLlmProvider = (v: string | null | undefined): LlmProvider => {
@@ -54,7 +56,16 @@ const serialize = (row: RuntimeConfig): RuntimeConfigResolved => {
     imageApiKey: decryptSecret(row.imageApiKeyEnc),
     imageModel: row.imageModel,
     gameConfig: parseGameConfig(row.gameConfigJson),
+    currentStoryId: row.currentStoryId,
   };
+};
+
+const resolveDefaultStoryId = async (): Promise<string | null> => {
+  const story = await db.story.findUnique({
+    where: { slug: 'chongshan-hospital' },
+    select: { id: true },
+  });
+  return story?.id || null;
 };
 
 const ensureRuntimeConfigRow = async (): Promise<RuntimeConfig> => {
@@ -63,12 +74,15 @@ const ensureRuntimeConfigRow = async (): Promise<RuntimeConfig> => {
     return found;
   }
 
+  const defaultStoryId = await resolveDefaultStoryId();
+
   return db.runtimeConfig.create({
     data: {
       id: 'default',
       llmProvider: LlmProvider.GEMINI,
       imageProvider: ImageProvider.POLLINATIONS,
       gameConfigJson: DEFAULT_GAME_CONFIG as unknown as Prisma.JsonObject,
+      currentStoryId: defaultStoryId,
     },
   });
 };
@@ -102,6 +116,7 @@ export const updateRuntimeConfig = async (
       imageApiKeyEnc: input.imageApiKey !== undefined ? encryptSecret(input.imageApiKey) : undefined,
       imageModel: input.imageModel !== undefined ? input.imageModel : undefined,
       gameConfigJson: mergedGameConfig as unknown as Prisma.JsonObject,
+      currentStoryId: input.currentStoryId !== undefined ? input.currentStoryId : undefined,
       updatedBy,
     },
   });

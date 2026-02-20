@@ -71,6 +71,112 @@ export interface RunSummary {
   startedAt: string;
   actorType: ActorType;
   isVictory?: boolean | null;
+  storyId?: string | null;
+  storySlug?: string | null;
+  storyTitle?: string | null;
+  outputLocale?: string;
+}
+
+export type StoryLifecycleStatus = 'draft' | 'published' | 'archived';
+export type StoryVersionSource = 'manual' | 'ai' | 'seed';
+
+export interface StoryVersionSummary {
+  id: string;
+  storyId: string;
+  versionNo: number;
+  source: StoryVersionSource;
+  changeNote?: string | null;
+  createdAt: string;
+}
+
+export interface StoryVersionPayload {
+  initialStateJson: Record<string, unknown>;
+  instructionTemplateRaw: string;
+  instructionSectionsJson: Record<string, unknown>;
+  changeNote?: string;
+  generationInputJson?: Record<string, unknown> | null;
+}
+
+export interface StorySummary {
+  id: string;
+  slug: string;
+  title: string;
+  summary?: string | null;
+  sourceLocale: string;
+  status: StoryLifecycleStatus;
+  hasLlmApiKeyOverride: boolean;
+  llmProvider?: 'gemini' | 'openai' | null;
+  llmBaseUrl?: string | null;
+  llmModel?: string | null;
+  draftVersionId?: string | null;
+  publishedVersionId?: string | null;
+  draftVersionNo?: number | null;
+  publishedVersionNo?: number | null;
+  publishedAt?: string | null;
+  archivedAt?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface StoryDetail extends StorySummary {
+  draftVersion?: StoryVersionSummary | null;
+  publishedVersion?: StoryVersionSummary | null;
+  draftPayload?: StoryVersionPayload | null;
+  publishedPayload?: StoryVersionPayload | null;
+}
+
+export interface StoryDraftEditorState {
+  changeNote: string;
+  initialStateJsonText: string;
+  instructionSectionsJsonText: string;
+  instructionTemplateRaw: string;
+  initialStateError?: string | null;
+  instructionSectionsError?: string | null;
+  instructionTemplateError?: string | null;
+  dirty: boolean;
+}
+
+export interface StoryAiGenerateFormState {
+  titleHint: string;
+  setting: string;
+  corePremise: string;
+  tone: string;
+  mustHaveRules: string;
+  mustHaveEndings: string;
+  targetTurns: string;
+  difficultyNotes: string;
+  changeNote: string;
+}
+
+export type StoryGenerationModelSource = 'lab' | 'global' | 'story';
+
+export interface LabModelConfig {
+  provider: 'gemini' | 'openai';
+  baseUrl: string;
+  model: string;
+  apiKey: string;
+}
+
+export interface GenerateStoryDraftInput {
+  titleHint?: string;
+  setting?: string;
+  corePremise?: string;
+  tone?: string;
+  mustHaveRules?: string[];
+  mustHaveEndings?: string[];
+  targetTurns?: number;
+  difficultyNotes?: string;
+  changeNote?: string;
+  briefSummary?: string;
+  modelSource?: StoryGenerationModelSource;
+  llmOverride?: LabModelConfig;
+}
+
+export type StoryWorkspaceTab = 'overview' | 'versions' | 'editor';
+
+export interface StoryListQueryState {
+  keyword: string;
+  status: 'all' | 'draft' | 'published' | 'archived';
 }
 
 export type BoardEventType =

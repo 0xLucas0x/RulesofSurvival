@@ -13,11 +13,14 @@ import {
 import { db } from './db';
 import { isWalletAllowedForImages } from './entitlement';
 import { HttpError } from './http';
+import { composeStorySystemInstruction } from './storyPrompt';
+import { resolveStoryForRunStart, resolveStoryLlmForTurn, resolveStoryVersionForTurn } from './stories';
 import { computeRunScore } from './scoring';
 import { getRuntimeConfig } from './runtimeConfig';
 import { recordRunCompleted, recordRunStarted } from './stats';
 
 const specialRuleDropKeywords = ['完整守则', '整页守则', '规则汇编', '值班手册', '患者守则原件', '公告栏整版'];
+const DEFAULT_OUTPUT_LOCALE = 'zh-CN';
 
 type PersistedState = Omit<GameState, 'isLoading'>;
 
@@ -35,6 +38,13 @@ type RunSnapshot = {
     model?: string | null;
   };
   gameConfig: any;
+  outputLocale: string;
+  story: {
+    storyId?: string | null;
+    storyVersionId?: string | null;
+    storySlug?: string | null;
+    storyTitle?: string | null;
+  };
   createdAt: string;
 };
 
@@ -53,10 +63,64 @@ const cleanState = (state: GameState): PersistedState => {
   };
 };
 
-const initialState = (): PersistedState => cleanState(INITIAL_STATE);
+const normalizeOutputLocale = (value: unknown): string => {
+  if (typeof value !== 'string') {
+    return DEFAULT_OUTPUT_LOCALE;
+  }
+  const locale = value.trim();
+  return locale || DEFAULT_OUTPUT_LOCALE;
+};
+
+const coercePersistedState = (value: unknown): PersistedState => {
+  if (!value || typeof value !== 'object') {
+    return cleanState(INITIAL_STATE);
+  }
+
+  const raw = value as Record<string, any>;
+  const fallback = cleanState(INITIAL_STATE);
+
+  const sanityRaw = Number(raw.sanity);
+  const sanity = Number.isFinite(sanityRaw) ? Math.max(0, Math.min(100, Math.round(sanityRaw))) : fallback.sanity;
+  const choices = Array.isArray(raw.choices) ? (raw.choices as Choice[]) : fallback.choices;
+  const rules = Array.isArray(raw.rules) ? raw.rules.filter((r) => typeof r === 'string') : fallback.rules;
+  const inventory = Array.isArray(raw.inventory) ? raw.inventory : fallback.inventory;
+  const turnCountRaw = Number(raw.turnCount);
+  const turnCount = Number.isFinite(turnCountRaw) ? Math.max(0, Math.floor(turnCountRaw)) : fallback.turnCount;
+
+  return {
+    sanity,
+    location: typeof raw.location === 'string' && raw.location ? raw.location : fallback.location,
+    narrative: typeof raw.narrative === 'string' && raw.narrative ? raw.narrative : fallback.narrative,
+    imagePrompt: typeof raw.imagePrompt === 'string' && raw.imagePrompt ? raw.imagePrompt : fallback.imagePrompt,
+    choices,
+    rules,
+    inventory,
+    turnCount,
+    isGameOver: Boolean(raw.isGameOver),
+    isVictory: Boolean(raw.isVictory),
+  };
+};
+
+const initialState = (seed?: unknown): PersistedState => {
+  if (seed) {
+    return coercePersistedState(seed);
+  }
+  return cleanState(INITIAL_STATE);
+};
 
 const ensureRunAccessible = async (runId: string, authUser: { id: string; role: UserRole }) => {
-  const run = await db.gameRun.findUnique({ where: { id: runId } });
+  const run = await db.gameRun.findUnique({
+    where: { id: runId },
+    include: {
+      story: {
+        select: {
+          id: true,
+          slug: true,
+          title: true,
+        },
+      },
+    },
+  });
   if (!run) {
     throw new HttpError(404, 'Run not found');
   }
@@ -110,20 +174,36 @@ const applyAiResult = (prev: PersistedState, choice: Choice, response: GeminiRes
   };
 };
 
-const getLastStateFromRun = async (runId: string): Promise<PersistedState> => {
+const getLastStateFromRun = async (run: {
+  id: string;
+  storyId?: string | null;
+  storyVersionIdAtStart?: string | null;
+}): Promise<PersistedState> => {
   const lastTurn = await db.gameTurn.findFirst({
-    where: { runId },
+    where: { runId: run.id },
     orderBy: { turnNo: 'desc' },
   });
 
   if (!lastTurn) {
-    return initialState();
+    const storySeed = await resolveStoryVersionForTurn({
+      storyId: run.storyId,
+      storyVersionIdAtStart: run.storyVersionIdAtStart,
+    });
+    return initialState(storySeed?.initialStateJson);
   }
 
-  return lastTurn.stateAfterJson as unknown as PersistedState;
+  return coercePersistedState(lastTurn.stateAfterJson);
 };
 
-const makeSnapshot = async (): Promise<RunSnapshot> => {
+const makeSnapshot = async (params: {
+  outputLocale: string;
+  story?: {
+    storyId?: string | null;
+    storyVersionId?: string | null;
+    storySlug?: string | null;
+    storyTitle?: string | null;
+  };
+}): Promise<RunSnapshot> => {
   const cfg = await getRuntimeConfig();
   return {
     llm: {
@@ -139,6 +219,8 @@ const makeSnapshot = async (): Promise<RunSnapshot> => {
       model: cfg.imageModel,
     },
     gameConfig: cfg.gameConfig,
+    outputLocale: params.outputLocale,
+    story: params.story || {},
     createdAt: new Date().toISOString(),
   };
 };
@@ -150,6 +232,12 @@ const toRunSummary = (run: {
   startedAt: Date;
   isVictory: boolean | null;
   actorType: RunActorType;
+  storyId?: string | null;
+  outputLocale?: string;
+  story?: {
+    slug: string;
+    title: string;
+  } | null;
 }) => ({
   runId: run.id,
   status: run.status.toLowerCase(),
@@ -157,21 +245,39 @@ const toRunSummary = (run: {
   startedAt: run.startedAt,
   actorType: run.actorType === RunActorType.AGENT ? 'agent' : 'human',
   isVictory: run.isVictory,
+  storyId: run.storyId ?? null,
+  storySlug: run.story?.slug ?? null,
+  storyTitle: run.story?.title ?? null,
+  outputLocale: run.outputLocale || DEFAULT_OUTPUT_LOCALE,
 });
 
 export const startOrGetActiveRun = async (
   authUser: { id: string; walletAddress: string },
   actorTypeInput: ActorType,
+  options?: {
+    storyId?: string | null;
+    outputLocale?: string;
+  },
 ) => {
   const actorType = parseActorTypeInput(actorTypeInput);
+  const outputLocale = normalizeOutputLocale(options?.outputLocale);
   const active = await db.gameRun.findFirst({
     where: { userId: authUser.id, status: GameRunStatus.ACTIVE },
     orderBy: { startedAt: 'desc' },
+    include: {
+      story: {
+        select: {
+          id: true,
+          slug: true,
+          title: true,
+        },
+      },
+    },
   });
 
   if (active) {
     void syncBoardRunSnapshotFromDb(active.id);
-    const state = await getLastStateFromRun(active.id);
+    const state = await getLastStateFromRun(active);
     return {
       summary: toRunSummary(active),
       state,
@@ -179,15 +285,36 @@ export const startOrGetActiveRun = async (
     };
   }
 
-  const snapshot = await makeSnapshot();
+  const selectedStory = await resolveStoryForRunStart(options?.storyId || null);
+  const snapshot = await makeSnapshot({
+    outputLocale,
+    story: {
+      storyId: selectedStory?.storyId || null,
+      storyVersionId: selectedStory?.storyVersionId || null,
+      storySlug: selectedStory?.storySlug || null,
+      storyTitle: selectedStory?.storyTitle || null,
+    },
+  });
   const created = await db.gameRun.create({
     data: {
       userId: authUser.id,
+      storyId: selectedStory?.storyId || null,
+      storyVersionIdAtStart: selectedStory?.storyVersionId || null,
+      outputLocale,
       status: GameRunStatus.ACTIVE,
       actorType: actorType === 'agent' ? RunActorType.AGENT : RunActorType.HUMAN,
       currentTurnNo: 0,
       configSnapshotJson: snapshot as any,
       activeKey: authUser.id,
+    },
+    include: {
+      story: {
+        select: {
+          id: true,
+          slug: true,
+          title: true,
+        },
+      },
     },
   });
 
@@ -201,7 +328,7 @@ export const startOrGetActiveRun = async (
 
   return {
     summary: toRunSummary(created),
-    state: initialState(),
+    state: initialState(selectedStory?.initialStateJson),
     recovered: false,
   };
 };
@@ -210,13 +337,22 @@ export const getCurrentRun = async (userId: string) => {
   const run = await db.gameRun.findFirst({
     where: { userId, status: GameRunStatus.ACTIVE },
     orderBy: { startedAt: 'desc' },
+    include: {
+      story: {
+        select: {
+          id: true,
+          slug: true,
+          title: true,
+        },
+      },
+    },
   });
 
   if (!run) {
     return null;
   }
 
-  const state = await getLastStateFromRun(run.id);
+  const state = await getLastStateFromRun(run);
   return {
     summary: toRunSummary(run),
     state,
@@ -225,7 +361,7 @@ export const getCurrentRun = async (userId: string) => {
 
 export const getRunWithState = async (runId: string, authUser: { id: string; role: UserRole }) => {
   const run = await ensureRunAccessible(runId, authUser);
-  const state = await getLastStateFromRun(run.id);
+  const state = await getLastStateFromRun(run);
   return {
     summary: toRunSummary(run),
     state,
@@ -275,8 +411,8 @@ export const submitRunTurn = async (
   });
 
   const stateBefore = turns.length
-    ? (turns[turns.length - 1].stateAfterJson as unknown as PersistedState)
-    : initialState();
+    ? coercePersistedState(turns[turns.length - 1].stateAfterJson)
+    : await getLastStateFromRun(run);
 
   if (stateBefore.isGameOver) {
     throw new HttpError(400, 'Run is already completed');
@@ -287,12 +423,18 @@ export const submitRunTurn = async (
 
   // Always resolve runtime config at turn time so admin updates take effect immediately.
   const liveConfig = await getRuntimeConfig();
+  const storyInstructionContext = await resolveStoryVersionForTurn({
+    storyId: run.storyId,
+    storyVersionIdAtStart: run.storyVersionIdAtStart,
+  });
+  const storyLlm = await resolveStoryLlmForTurn(run.storyId);
+  const outputLocale = normalizeOutputLocale(run.outputLocale);
   const snapshot: RunSnapshot = {
     llm: {
-      provider: liveConfig.llmProvider,
-      baseUrl: liveConfig.llmBaseUrl,
-      apiKey: liveConfig.llmApiKey,
-      model: liveConfig.llmModel,
+      provider: storyLlm.provider,
+      baseUrl: storyLlm.baseUrl,
+      apiKey: storyLlm.apiKey,
+      model: storyLlm.model,
     },
     image: {
       provider: liveConfig.imageProvider,
@@ -301,9 +443,23 @@ export const submitRunTurn = async (
       model: liveConfig.imageModel,
     },
     gameConfig: liveConfig.gameConfig,
+    outputLocale,
+    story: {
+      storyId: storyInstructionContext?.storyId || run.storyId || null,
+      storyVersionId: storyInstructionContext?.storyVersionId || run.storyVersionIdAtStart || null,
+      storySlug: storyInstructionContext?.storySlug || run.story?.slug || null,
+      storyTitle: storyInstructionContext?.storyTitle || run.story?.title || null,
+    },
     createdAt: new Date().toISOString(),
   };
   const gameConfig = snapshot.gameConfig as any;
+  const systemInstructionOverride = storyInstructionContext
+    ? composeStorySystemInstruction({
+      templateRaw: storyInstructionContext.instructionTemplateRaw,
+      gameConfig,
+      outputLocale,
+    })
+    : undefined;
 
   const startedAt = Date.now();
   const ai = await generateNextTurnServer({
@@ -317,6 +473,10 @@ export const submitRunTurn = async (
     currentSanity: stateBefore.sanity,
     inventory: stateBefore.inventory,
     gameConfig,
+    systemInstructionOverride,
+    outputLocale,
+    storyTitle: snapshot.story.storyTitle || undefined,
+    storySlug: snapshot.story.storySlug || undefined,
   });
   const latencyMs = Date.now() - startedAt;
 

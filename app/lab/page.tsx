@@ -3,8 +3,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { INITIAL_STATE } from '../../constants';
 import { DEFAULT_GAME_CONFIG } from '../../gameConfig';
-import type { Choice, Evidence, GeminiResponse, StoryEvaluation } from '../../types';
-import { evaluateStory } from '../../services/geminiService';
+import type {
+  Choice,
+  Evidence,
+  GeminiResponse,
+  StoryEvaluation,
+  StorySummary,
+  StoryVersionPayload,
+} from '../../types';
+import { evaluateStory, fetchStoriesAdmin, fetchStoryAdmin } from '../../services/geminiService';
 import {
   testLabDb,
   type LabGameRecord,
@@ -27,6 +34,7 @@ type LiveGameEvent = {
 };
 
 type Strategy = 'mixed' | 'investigate-first' | 'risky-first';
+type StoryVersionMode = 'draft' | 'published';
 
 type LabConfig = {
   provider: 'gemini' | 'openai';
@@ -38,6 +46,9 @@ type LabConfig = {
   maxTurns: number;
   timeoutMs: number;
   strategy: Strategy;
+  storyId: string;
+  storyVersionMode: StoryVersionMode;
+  outputLocale: string;
 };
 
 const DEFAULT_CONFIG: LabConfig = {
@@ -50,6 +61,9 @@ const DEFAULT_CONFIG: LabConfig = {
   maxTurns: 16,
   timeoutMs: 45000,
   strategy: 'mixed',
+  storyId: '',
+  storyVersionMode: 'draft',
+  outputLocale: 'zh-CN',
 };
 
 const specialRuleDropKeywords = ['完整守则', '整页守则', '规则汇编', '值班手册', '患者守则原件', '公告栏整版'];
@@ -101,6 +115,99 @@ const normalizeBaseUrl = (input: string): string => {
   return url;
 };
 
+const toNumber = (value: unknown, fallback: number): number => {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : fallback;
+};
+
+const sanitizeChoices = (value: unknown): Choice[] => {
+  if (!Array.isArray(value)) {
+    return [...INITIAL_STATE.choices];
+  }
+  const normalized = value
+    .map((raw, index) => {
+      if (!raw || typeof raw !== 'object') {
+        return null;
+      }
+      const row = raw as Record<string, unknown>;
+      const text = typeof row.text === 'string' ? row.text.trim() : '';
+      if (!text) {
+        return null;
+      }
+      const actionType = row.actionType === 'move'
+        || row.actionType === 'investigate'
+        || row.actionType === 'item'
+        || row.actionType === 'risky'
+        ? row.actionType
+        : 'investigate';
+      return {
+        id: typeof row.id === 'string' ? row.id : String(index + 1),
+        text,
+        actionType,
+      } as Choice;
+    })
+    .filter((item): item is Choice => !!item);
+
+  return normalized.length ? normalized : [...INITIAL_STATE.choices];
+};
+
+const sanitizeInventory = (value: unknown): Evidence[] => {
+  if (!Array.isArray(value)) {
+    return [...INITIAL_STATE.inventory];
+  }
+  return value
+    .map((raw) => {
+      if (!raw || typeof raw !== 'object') {
+        return null;
+      }
+      const row = raw as Record<string, unknown>;
+      const id = typeof row.id === 'string' ? row.id : '';
+      const name = typeof row.name === 'string' ? row.name : '';
+      const description = typeof row.description === 'string' ? row.description : '';
+      const type = row.type === 'document' || row.type === 'photo' || row.type === 'item' || row.type === 'key'
+        ? row.type
+        : 'item';
+      if (!id || !name) {
+        return null;
+      }
+      return { id, name, description, type } as Evidence;
+    })
+    .filter((item): item is Evidence => !!item);
+};
+
+const sanitizeRules = (value: unknown): string[] => {
+  if (!Array.isArray(value)) {
+    return [...INITIAL_STATE.rules];
+  }
+  const rules = value.filter((item): item is string => typeof item === 'string' && !!item.trim());
+  return rules.length ? rules : [...INITIAL_STATE.rules];
+};
+
+const deriveInitialState = (payload?: StoryVersionPayload | null) => {
+  if (!payload?.initialStateJson || typeof payload.initialStateJson !== 'object') {
+    return {
+      sanity: INITIAL_STATE.sanity,
+      location: INITIAL_STATE.location,
+      narrative: INITIAL_STATE.narrative,
+      imagePrompt: INITIAL_STATE.imagePrompt,
+      choices: [...INITIAL_STATE.choices],
+      rules: [...INITIAL_STATE.rules],
+      inventory: [...INITIAL_STATE.inventory],
+    };
+  }
+
+  const raw = payload.initialStateJson as Record<string, unknown>;
+  return {
+    sanity: Math.max(0, Math.min(100, toNumber(raw.sanity, INITIAL_STATE.sanity))),
+    location: typeof raw.location === 'string' && raw.location.trim() ? raw.location : INITIAL_STATE.location,
+    narrative: typeof raw.narrative === 'string' && raw.narrative.trim() ? raw.narrative : INITIAL_STATE.narrative,
+    imagePrompt: typeof raw.imagePrompt === 'string' && raw.imagePrompt.trim() ? raw.imagePrompt : INITIAL_STATE.imagePrompt,
+    choices: sanitizeChoices(raw.choices),
+    rules: sanitizeRules(raw.rules),
+    inventory: sanitizeInventory(raw.inventory),
+  };
+};
+
 const pickChoiceByStrategy = (choices: Choice[], strategy: Strategy): Choice => {
   if (!choices.length) {
     return { id: 'fallback', text: '原地观察', actionType: 'investigate' };
@@ -146,6 +253,7 @@ export default function TestLabPage() {
   const [selectedGameId, setSelectedGameId] = useState<string>('');
   const [turns, setTurns] = useState<LabTurnRecord[]>([]);
   const [liveEvents, setLiveEvents] = useState<LiveGameEvent[]>([]);
+  const [storyOptions, setStoryOptions] = useState<StorySummary[]>([]);
   const [isRunning, setIsRunning] = useState(false);
   const [statusText, setStatusText] = useState('Idle');
   const stopRef = useRef(false);
@@ -210,6 +318,15 @@ export default function TestLabPage() {
     setTurns(items);
   };
 
+  const refreshStoryOptions = async () => {
+    try {
+      const items = await fetchStoriesAdmin();
+      setStoryOptions(items);
+    } catch {
+      setStoryOptions([]);
+    }
+  };
+
   const exportRunData = async () => {
     if (!selectedRun) return;
     const runGames = await testLabDb.getGamesByRun(selectedRun.id);
@@ -243,6 +360,7 @@ export default function TestLabPage() {
     }
 
     refreshRuns();
+    refreshStoryOptions();
   }, []);
 
   useEffect(() => {
@@ -294,14 +412,19 @@ export default function TestLabPage() {
     await refreshRuns();
   };
 
-  const runSingleGame = async (runId: string, gameIndex: number): Promise<LabGameRecord> => {
+  const runSingleGame = async (
+    runId: string,
+    gameIndex: number,
+    seedPayload?: StoryVersionPayload | null,
+  ): Promise<LabGameRecord> => {
     const gameId = `${runId}-g-${String(gameIndex + 1).padStart(4, '0')}`;
-    let sanity = INITIAL_STATE.sanity;
-    let location = INITIAL_STATE.location;
-    let narrative = INITIAL_STATE.narrative;
-    let rules = [...INITIAL_STATE.rules];
-    let inventory: Evidence[] = [...INITIAL_STATE.inventory];
-    let choices: Choice[] = [...INITIAL_STATE.choices];
+    const initialState = deriveInitialState(seedPayload);
+    let sanity = initialState.sanity;
+    let location = initialState.location;
+    let narrative = initialState.narrative;
+    let rules = [...initialState.rules];
+    let inventory: Evidence[] = [...initialState.inventory];
+    let choices: Choice[] = [...initialState.choices];
     let turn = 0;
     let isGameOver = false;
     let isVictory = false;
@@ -330,7 +453,7 @@ export default function TestLabPage() {
       };
 
       const start = performance.now();
-      const response = await postJsonWithTimeout<GeminiResponse>('/api/v1/game/turn', {
+      const payload: Record<string, unknown> = {
         history,
         currentAction: choice.text,
         currentRules: rules,
@@ -346,7 +469,20 @@ export default function TestLabPage() {
         },
         labMode: true,
         isOvertime,
-      }, config.timeoutMs);
+        outputLocale: config.outputLocale.trim() || 'zh-CN',
+      };
+
+      const storyId = config.storyId.trim();
+      if (storyId) {
+        payload.storyId = storyId;
+        payload.storyVersionMode = config.storyVersionMode;
+      }
+
+      const response = await postJsonWithTimeout<GeminiResponse>(
+        '/api/v1/game/turn',
+        payload,
+        config.timeoutMs,
+      );
       const latencyMs = Math.round(performance.now() - start);
 
       const incomingRules = response.new_rules || [];
@@ -483,6 +619,24 @@ export default function TestLabPage() {
       return;
     }
 
+    let seedPayload: StoryVersionPayload | null = null;
+    const selectedStoryId = config.storyId.trim();
+    if (selectedStoryId) {
+      try {
+        const detail = await fetchStoryAdmin(selectedStoryId);
+        seedPayload = config.storyVersionMode === 'published'
+          ? (detail.publishedPayload || detail.draftPayload || null)
+          : (detail.draftPayload || detail.publishedPayload || null);
+
+        if (!seedPayload) {
+          throw new Error('选中故事没有可用于测试的版本内容');
+        }
+      } catch (error: any) {
+        setStatusText(`配置错误：${error?.message || '无法读取故事版本内容'}`);
+        return;
+      }
+    }
+
 
     stopRef.current = false;
     setIsRunning(true);
@@ -526,7 +680,7 @@ export default function TestLabPage() {
 
         setStatusText(`Running game ${gameIndex + 1}/${config.totalGames}...`);
         try {
-          const game = await runSingleGame(runId, gameIndex);
+          const game = await runSingleGame(runId, gameIndex, seedPayload);
           snapshots.push(game);
           completed += 1;
           if (!selectedGameId) {
@@ -678,7 +832,7 @@ export default function TestLabPage() {
             <span className="text-gray-500 text-xs">{configCollapsed ? '▶ 展开' : '▼ 收起'}</span>
           </button>
           {!configCollapsed && (
-            <div className="px-4 pb-4 grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-3 border-t border-gray-800">
+            <div className="px-4 pb-4 grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3 border-t border-gray-800">
               {[
                 { label: 'Base URL', id: 'lab-base-url', value: config.baseUrl, onChange: (v: string) => setConfig((c) => ({ ...c, baseUrl: v })), ph: 'https://...' },
                 { label: 'Model', id: 'lab-model', value: config.model, onChange: (v: string) => setConfig((c) => ({ ...c, model: v })), ph: 'z-ai/glm4.7' },
@@ -711,6 +865,51 @@ export default function TestLabPage() {
                   <option value="risky-first">risky-first</option>
                 </select>
               </label>
+              <label className="flex flex-col gap-1 text-xs text-gray-400 md:col-span-2 xl:col-span-2">
+                测试故事（可选）
+                <select
+                  id="lab-story-id"
+                  className="bg-gray-950 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-gray-200 focus:border-emerald-600 focus:outline-none"
+                  value={config.storyId}
+                  onChange={(e) => setConfig((c) => ({ ...c, storyId: e.target.value }))}
+                >
+                  <option value="">未指定（沿用默认故事/常量回退）</option>
+                  {storyOptions.map((story) => (
+                    <option key={story.id} value={story.id}>
+                      {story.title} ({story.slug}) [{story.status}]
+                    </option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  className="self-start text-[11px] text-cyan-400 hover:text-cyan-300 transition-colors"
+                  onClick={refreshStoryOptions}
+                >
+                  刷新故事列表
+                </button>
+              </label>
+              <label className="flex flex-col gap-1 text-xs text-gray-400">
+                版本来源
+                <select
+                  id="lab-story-version-mode"
+                  className="bg-gray-950 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-gray-200 focus:border-emerald-600 focus:outline-none"
+                  value={config.storyVersionMode}
+                  onChange={(e) => setConfig((c) => ({ ...c, storyVersionMode: e.target.value as StoryVersionMode }))}
+                >
+                  <option value="draft">draft（优先草稿）</option>
+                  <option value="published">published（优先已发布）</option>
+                </select>
+              </label>
+              <label className="flex flex-col gap-1 text-xs text-gray-400">
+                输出语言（outputLocale）
+                <input
+                  id="lab-output-locale"
+                  className="bg-gray-950 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-gray-200 focus:border-emerald-600 focus:outline-none"
+                  value={config.outputLocale}
+                  onChange={(e) => setConfig((c) => ({ ...c, outputLocale: e.target.value }))}
+                  placeholder="zh-CN / en-US / ja-JP ..."
+                />
+              </label>
               {[
                 { label: '游戏数量', id: 'lab-total-games', value: config.totalGames, onChange: (v: number) => setConfig((c) => ({ ...c, totalGames: v || 1 })), min: 1 },
                 { label: '并发数', id: 'lab-concurrency', value: config.concurrency, onChange: (v: number) => setConfig((c) => ({ ...c, concurrency: v || 1 })), min: 1 },
@@ -722,6 +921,9 @@ export default function TestLabPage() {
                   <input id={f.id} className="bg-gray-950 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-gray-200 focus:border-emerald-600 focus:outline-none" type="number" min={f.min} step={f.step} value={f.value} onChange={(e) => f.onChange(Number(e.target.value))} />
                 </label>
               ))}
+              <div className="col-span-2 md:col-span-3 xl:col-span-6 text-[11px] text-gray-500 leading-relaxed">
+                选择“测试故事”后，`/lab` 会在不发布的情况下直接读取该故事版本（可选 `draft`）进行回合生成；未指定时沿用默认故事链路和常量回退。
+              </div>
             </div>
           )}
         </section>

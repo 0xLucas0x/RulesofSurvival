@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   addNftRequirementAdmin,
   addTokenRequirementAdmin,
@@ -13,6 +13,7 @@ import {
   updateAdminConfig,
   updateUnlockPolicy,
 } from '../../services/geminiService';
+import { StoryManager } from '../../components/admin/StoryManager';
 
 export default function AdminPage() {
   const [loading, setLoading] = useState(true);
@@ -83,6 +84,20 @@ export default function AdminPage() {
       setSaving(false);
     }
   };
+
+  const handleStoryError = useCallback((message: string | null) => {
+    setError(message);
+    if (message) {
+      setOk(null);
+    }
+  }, []);
+
+  const handleStoryOk = useCallback((message: string | null) => {
+    setOk(message);
+    if (message) {
+      setError(null);
+    }
+  }, []);
 
   if (loading) {
     return <div className="min-h-screen bg-black text-gray-200 p-8">Loading admin panel...</div>;
@@ -414,6 +429,8 @@ export default function AdminPage() {
           </div>
         </div>
       </section>
+
+      <StoryManager onError={handleStoryError} onOk={handleStoryOk} />
     </div>
   );
 }

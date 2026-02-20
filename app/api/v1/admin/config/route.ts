@@ -30,6 +30,7 @@ export async function PUT(request: NextRequest) {
         imageApiKey: body.imageApiKey,
         imageModel: body.imageModel,
         gameConfig: body.gameConfig,
+        currentStoryId: body.currentStoryId,
       },
       admin.id,
     );

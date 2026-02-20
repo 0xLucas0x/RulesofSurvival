@@ -6,12 +6,18 @@ import type {
   BoardRunSnapshot,
   Choice,
   Evidence,
+  GenerateStoryDraftInput,
   GameState,
   GeminiResponse,
+  LabModelConfig,
   LandingStats,
   LeaderboardEntry,
   RunSummary,
+  StoryDetail,
   StoryEvaluation,
+  StorySummary,
+  StoryVersionPayload,
+  StoryVersionSummary,
 } from '../types';
 
 const normalizeAuthUser = (input: any): AuthUser => {
@@ -55,7 +61,7 @@ const extractErrorMessage = (status: number, json: Record<string, unknown> | nul
   return `Request failed: ${status}`;
 };
 
-const postJson = async <T>(url: string, payload: Record<string, unknown>): Promise<T> => {
+const postJson = async <T>(url: string, payload: unknown): Promise<T> => {
   const response = await fetch(url, {
     method: 'POST',
     headers: {
@@ -75,7 +81,7 @@ const postJson = async <T>(url: string, payload: Record<string, unknown>): Promi
   return json as T;
 };
 
-const putJson = async <T>(url: string, payload: Record<string, unknown>): Promise<T> => {
+const putJson = async <T>(url: string, payload: unknown): Promise<T> => {
   const response = await fetch(url, {
     method: 'PUT',
     headers: {
@@ -105,6 +111,50 @@ const getJson = async <T>(url: string): Promise<T> => {
     throw new Error(`Invalid JSON response from ${url} (HTTP ${response.status})`);
   }
   return json as T;
+};
+
+const asNonEmptyString = (value: unknown): string => {
+  return typeof value === 'string' ? value.trim() : '';
+};
+
+export const readLabModelConfig = (): LabModelConfig | null => {
+  if (typeof window === 'undefined') {
+    return null;
+  }
+
+  const raw = window.localStorage.getItem('test_lab_config');
+  if (!raw) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    const providerRaw = asNonEmptyString(parsed.provider).toLowerCase();
+    if (providerRaw !== 'gemini' && providerRaw !== 'openai') {
+      return null;
+    }
+
+    const provider = providerRaw as LabModelConfig['provider'];
+    const baseUrl = asNonEmptyString(parsed.baseUrl);
+    const model = asNonEmptyString(parsed.model);
+    const apiKey = asNonEmptyString(parsed.apiKey);
+
+    if (!model || !apiKey) {
+      return null;
+    }
+    if (provider === 'openai' && !baseUrl) {
+      return null;
+    }
+
+    return {
+      provider,
+      baseUrl,
+      model,
+      apiKey,
+    };
+  } catch {
+    return null;
+  }
 };
 
 export const generateNextTurn = async (
@@ -230,12 +280,25 @@ export const logoutAuth = async (): Promise<void> => {
   await postJson('/api/v1/auth/logout', {});
 };
 
-export const startRun = async (actorType: ActorType = 'human'): Promise<{
+export const startRun = async (
+  actorType: ActorType = 'human',
+  options?: {
+    storyId?: string;
+    outputLocale?: string;
+  },
+): Promise<{
   summary: RunSummary;
   state: GameState;
   recovered: boolean;
 }> => {
-  return postJson('/api/v1/runs/start', actorType === 'human' ? {} : { actorType });
+  const payload: Record<string, unknown> = actorType === 'human' ? {} : { actorType };
+  if (options?.storyId) {
+    payload.storyId = options.storyId;
+  }
+  if (options?.outputLocale) {
+    payload.outputLocale = options.outputLocale;
+  }
+  return postJson('/api/v1/runs/start', payload);
 };
 
 export const getCurrentRun = async (): Promise<{
@@ -341,4 +404,83 @@ export const removeTokenRequirementAdmin = async (id: string): Promise<Record<st
     throw new Error(data?.error || `Request failed: ${response.status}`);
   }
   return data;
+};
+
+export const fetchStoriesAdmin = async (): Promise<StorySummary[]> => {
+  const data = await getJson<{ items: StorySummary[] }>('/api/v1/admin/stories');
+  return data.items || [];
+};
+
+export const createStoryAdminApi = async (payload: {
+  slug: string;
+  title: string;
+  summary?: string;
+  sourceLocale?: string;
+  llmProvider?: 'gemini' | 'openai' | null;
+  llmBaseUrl?: string | null;
+  llmModel?: string | null;
+  llmApiKey?: string | null;
+}): Promise<StoryDetail> => {
+  return postJson('/api/v1/admin/stories', payload);
+};
+
+export const fetchStoryAdmin = async (storyId: string): Promise<StoryDetail> => {
+  return getJson(`/api/v1/admin/stories/${encodeURIComponent(storyId)}`);
+};
+
+export const updateStoryAdminApi = async (
+  storyId: string,
+  payload: {
+    slug?: string;
+    title?: string;
+    summary?: string | null;
+    sourceLocale?: string;
+    llmProvider?: 'gemini' | 'openai' | null;
+    llmBaseUrl?: string | null;
+    llmModel?: string | null;
+    llmApiKey?: string | null;
+  },
+): Promise<StoryDetail> => {
+  return putJson(`/api/v1/admin/stories/${encodeURIComponent(storyId)}`, payload);
+};
+
+export const fetchStoryVersionsAdmin = async (storyId: string): Promise<StoryVersionSummary[]> => {
+  const data = await getJson<{ items: StoryVersionSummary[] }>(`/api/v1/admin/stories/${encodeURIComponent(storyId)}/versions`);
+  return data.items || [];
+};
+
+export const createStoryDraftAdmin = async (
+  storyId: string,
+  payload: StoryVersionPayload,
+): Promise<StoryVersionSummary> => {
+  return postJson(`/api/v1/admin/stories/${encodeURIComponent(storyId)}/draft`, payload);
+};
+
+export const generateStoryDraftAdmin = async (
+  storyId: string,
+  payload: GenerateStoryDraftInput,
+): Promise<StoryVersionSummary> => {
+  return postJson(
+    `/api/v1/admin/stories/${encodeURIComponent(storyId)}/generate-draft`,
+    payload,
+  );
+};
+
+export const publishStoryAdminApi = async (
+  storyId: string,
+  versionId?: string,
+): Promise<StoryDetail> => {
+  return postJson(`/api/v1/admin/stories/${encodeURIComponent(storyId)}/publish`, versionId ? { versionId } : {});
+};
+
+export const archiveStoryAdminApi = async (storyId: string): Promise<StoryDetail> => {
+  return postJson(`/api/v1/admin/stories/${encodeURIComponent(storyId)}/archive`, {});
+};
+
+export const fetchCurrentStoryAdmin = async (): Promise<{ currentStoryId: string | null; story: StorySummary | null }> => {
+  return getJson('/api/v1/admin/stories/current');
+};
+
+export const setCurrentStoryAdminApi = async (storyId: string): Promise<{ currentStoryId: string; story: StorySummary }> => {
+  return putJson('/api/v1/admin/stories/current', { storyId });
 };

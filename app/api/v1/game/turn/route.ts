@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { generateNextTurnServer } from '../../../../../lib/server/aiEngine';
 import { requireAuth } from '../../../../../lib/server/auth';
 import { HttpError } from '../../../../../lib/server/http';
+import { composeStorySystemInstruction } from '../../../../../lib/server/storyPrompt';
+import { resolveStoryVersionForLab } from '../../../../../lib/server/stories';
 import { getRuntimeConfig } from '../../../../../lib/server/runtimeConfig';
 
 export async function POST(request: NextRequest) {
@@ -24,9 +26,29 @@ export async function POST(request: NextRequest) {
       inventoryCount: Array.isArray(body?.inventory) ? body.inventory.length : 0,
       labMode: body?.labMode,
       isOvertime: body?.isOvertime,
+      storyId: body?.storyId,
+      storyVersionMode: body?.storyVersionMode,
+      outputLocale: body?.outputLocale,
     };
 
     const runtime = await getRuntimeConfig();
+    const outputLocale = typeof body?.outputLocale === 'string' && body.outputLocale.trim()
+      ? body.outputLocale.trim()
+      : 'zh-CN';
+    const storyContext = typeof body?.storyId === 'string'
+      ? await resolveStoryVersionForLab({
+        storyId: body.storyId,
+        storyVersionMode: body?.storyVersionMode === 'published' ? 'published' : 'draft',
+      })
+      : null;
+    const systemInstructionOverride = storyContext
+      ? composeStorySystemInstruction({
+        templateRaw: storyContext.instructionTemplateRaw,
+        gameConfig: body.gameConfig || runtime.gameConfig,
+        outputLocale,
+      })
+      : undefined;
+
     const result = await generateNextTurnServer({
       ...body,
       provider: body.provider || runtime.llmProvider,
@@ -34,7 +56,11 @@ export async function POST(request: NextRequest) {
       apiKey: body.apiKey || runtime.llmApiKey || undefined,
       model: body.model || runtime.llmModel || undefined,
       gameConfig: body.gameConfig || runtime.gameConfig,
+      outputLocale,
+      systemInstructionOverride,
       labMode: true,
+      storyTitle: storyContext?.storyTitle,
+      storySlug: storyContext?.storySlug,
     });
     return NextResponse.json(result);
   } catch (error: any) {
