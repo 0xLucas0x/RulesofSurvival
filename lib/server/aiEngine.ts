@@ -59,6 +59,77 @@ const normalizeOpenAIBaseUrl = (url: string): string => {
   return clean;
 };
 
+type OpenAIChatMessage = {
+  role: 'system' | 'user' | 'assistant';
+  content: string;
+};
+
+const TURN_JSON_MAX_ATTEMPTS = 2;
+
+const previewText = (text: string, maxLength = 360): string => {
+  if (text.length <= maxLength) {
+    return text;
+  }
+  return `${text.slice(0, maxLength)}...`;
+};
+
+const buildTurnJsonRepairPrompt = (rawText: string, outputLocale: string): string => {
+  return `
+Your previous response was invalid JSON.
+Rewrite it into a strictly valid JSON object only, without markdown or extra text.
+
+Output requirements:
+- Keep all JSON keys exactly as required by this game engine.
+- Must include required keys: narrative, choices, image_prompt_english, sanity_change, location_name, is_game_over.
+- choices[*].actionType must be one of: move, investigate, item, risky.
+- Keep all player-visible text in locale: ${outputLocale}.
+- If uncertain, use empty arrays for new_rules/new_evidence.
+
+Malformed payload to repair:
+${rawText}
+`;
+};
+
+const requestOpenAIJsonCompletion = async ({
+  cleanUrl,
+  apiKey,
+  model,
+  messages,
+  temperature,
+}: {
+  cleanUrl: string;
+  apiKey: string;
+  model: string;
+  messages: OpenAIChatMessage[];
+  temperature: number;
+}): Promise<string> => {
+  const response = await fetch(`${cleanUrl}/chat/completions`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({
+      model,
+      messages,
+      response_format: { type: 'json_object' },
+      temperature,
+    }),
+  });
+
+  if (!response.ok) {
+    const errText = await response.text();
+    throw new Error(`OpenAI API Error: ${response.status} - ${errText}`);
+  }
+
+  const data = await response.json();
+  const jsonText = data?.choices?.[0]?.message?.content;
+  if (!jsonText || typeof jsonText !== 'string') {
+    throw new Error('Empty response from OpenAI Provider');
+  }
+  return jsonText;
+};
+
 const extractLikelyJsonBlock = (text: string): string => {
   const trimmed = text.trim();
   const fenceMatch = trimmed.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
@@ -893,49 +964,67 @@ Begin wrapping up the narrative. REMEMBER: Focus on resolving the PLOT (items/ex
   }
 
   const cleanUrl = normalizeOpenAIBaseUrl(baseUrl);
-  const response = await fetch(`${cleanUrl}/chat/completions`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${effectiveApiKey}`,
-    },
-    body: JSON.stringify({
-      model: model || 'gpt-3.5-turbo',
-      messages: [
-        { role: 'system', content: systemInstruction },
-        { role: 'user', content: `${prompt}\n\nIMPORTANT: You must respond in valid JSON format matching the schema.` },
-      ],
-      response_format: { type: 'json_object' },
-      temperature: 0.8,
-    }),
-  });
+  const openAiModel = model || 'gpt-3.5-turbo';
+  const baseMessages: OpenAIChatMessage[] = [
+    { role: 'system', content: systemInstruction },
+    { role: 'user', content: `${prompt}\n\nIMPORTANT: You must respond in valid JSON format matching the schema.` },
+  ];
+  let lastRawText = '';
+  let lastError: Error | null = null;
 
-  if (!response.ok) {
-    const errText = await response.text();
-    throw new Error(`OpenAI API Error: ${response.status} - ${errText}`);
+  for (let attempt = 1; attempt <= TURN_JSON_MAX_ATTEMPTS; attempt += 1) {
+    const isRepairAttempt = attempt > 1;
+    const messages: OpenAIChatMessage[] = isRepairAttempt
+      ? [
+          { role: 'system', content: `${systemInstruction}\n\nYou are in strict JSON repair mode. Return JSON only.` },
+          { role: 'user', content: buildTurnJsonRepairPrompt(lastRawText, outputLocale) },
+        ]
+      : baseMessages;
+
+    try {
+      const jsonText = await requestOpenAIJsonCompletion({
+        cleanUrl,
+        apiKey: effectiveApiKey,
+        model: openAiModel,
+        messages,
+        temperature: isRepairAttempt ? 0 : 0.8,
+      });
+      lastRawText = jsonText;
+      const parsed = parseModelJsonResponse<GeminiResponse>(jsonText, 'Invalid JSON from OpenAI provider');
+      return applyDifficultyDirector({
+        response: parsed,
+        directorState,
+        turnNumber,
+        maxTurns: gameConfig.maxTurns,
+        isOvertime,
+        currentRules,
+        inventory,
+        currentAction,
+        currentSanity,
+        directorMode,
+        storyTitle,
+        storySlug,
+      });
+    } catch (error: any) {
+      const err = error instanceof Error ? error : new Error(String(error));
+      lastError = err;
+      const isInvalidJsonError = err.message.includes('Invalid JSON');
+      console.warn('[turn-generate] openai attempt failed', {
+        attempt,
+        openAiModel,
+        isRepairAttempt,
+        isInvalidJsonError,
+        message: err.message,
+        rawPreview: previewText(lastRawText || ''),
+      });
+
+      if (attempt >= TURN_JSON_MAX_ATTEMPTS) {
+        throw err;
+      }
+    }
   }
 
-  const data = await response.json();
-  const jsonText = data?.choices?.[0]?.message?.content;
-  if (!jsonText) {
-    throw new Error('Empty response from OpenAI Provider');
-  }
-
-  const parsed = parseModelJsonResponse<GeminiResponse>(jsonText, 'Invalid JSON from OpenAI provider');
-  return applyDifficultyDirector({
-    response: parsed,
-    directorState,
-    turnNumber,
-    maxTurns: gameConfig.maxTurns,
-    isOvertime,
-    currentRules,
-    inventory,
-    currentAction,
-    currentSanity,
-    directorMode,
-    storyTitle,
-    storySlug,
-  });
+  throw lastError || new Error('Turn generation failed after retries');
 };
 
 type EvaluateStoryInput = {
