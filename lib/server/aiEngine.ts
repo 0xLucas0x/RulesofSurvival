@@ -183,8 +183,12 @@ type GenerateTurnInput = {
   currentSanity?: number;
   inventory?: Evidence[];
   gameConfig?: GameConfig;
+  systemInstructionOverride?: string;
+  outputLocale?: string;
   isOvertime?: boolean;
   labMode?: boolean;
+  storyTitle?: string | null;
+  storySlug?: string | null;
 };
 
 type ActionType = Choice['actionType'];
@@ -221,6 +225,8 @@ type DifficultyDirectorInput = {
   currentAction: string;
   currentSanity: number;
   directorMode: 'default' | 'lab';
+  storyTitle?: string | null;
+  storySlug?: string | null;
 };
 
 const ACTION_TYPES: ActionType[] = ['move', 'investigate', 'item', 'risky'];
@@ -229,11 +235,108 @@ const EXIT_KEYWORDS = ['天台', '屋顶', '出口', '逃离', '离开', '撤离
 const RITUAL_KEYWORDS = ['封印', '仪式', '裂缝', '下潜', '地下二层', '锚点', '阵列', '关闭', '重置'];
 const ENDING_ACTION_KEYWORDS = [...EXIT_KEYWORDS, ...RITUAL_KEYWORDS, '最终', '决断', '了结'];
 const DEEP_ZONE_KEYWORDS = ['东楼', '地下', '档案', '封锁', '禁闭', '裂缝', '封印室', '地下二层'];
-const PLOT_ITEM_KEYWORDS = ['病历', '档案', '录音', '工牌', '徽章', '封印', '阵列', '蓝衣', '赵医生', '裂缝', '守则原件'];
+const BASE_PLOT_ITEM_KEYWORDS = [
+  '病历',
+  '档案',
+  '录音',
+  '工牌',
+  '徽章',
+  '封印',
+  '阵列',
+  '裂缝',
+  '守则原件',
+  '手册',
+  '日志',
+  '钥匙',
+  '凭证',
+  '契约',
+  '地图',
+  '笔记',
+  '照片',
+  '核心',
+  '仪式',
+];
+const CHONGSHAN_PLOT_ITEM_KEYWORDS = [
+  '病历',
+  '档案',
+  '录音',
+  '工牌',
+  '徽章',
+  '封印',
+  '阵列',
+  '蓝衣',
+  '赵医生',
+  '裂缝',
+  '守则原件',
+];
 const ENDING_GRACE_TURNS = 3;
 
 const textIncludesAny = (text: string, keywords: string[]): boolean => {
   return keywords.some((keyword) => text.includes(keyword));
+};
+
+const uniqNonEmpty = (items: Array<string | null | undefined>): string[] => {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const raw of items) {
+    if (!raw || typeof raw !== 'string') {
+      continue;
+    }
+    const text = raw.trim();
+    if (!text || seen.has(text)) {
+      continue;
+    }
+    seen.add(text);
+    out.push(text);
+  }
+  return out;
+};
+
+const isChongshanStory = (storyTitle?: string | null, storySlug?: string | null): boolean => {
+  const titleRaw = (storyTitle || '').trim();
+  const title = titleRaw.toLowerCase();
+  const slug = (storySlug || '').trim().toLowerCase().replace(/_/g, '-');
+  return (
+    slug === 'chongshan-hospital'
+    || (slug.includes('chongshan') && slug.includes('hospital'))
+    || titleRaw.includes('崇山医院')
+    || title.includes('chongshan hospital')
+  );
+};
+
+const extractStoryKeywords = (storyTitle?: string | null, storySlug?: string | null): string[] => {
+  const title = (storyTitle || '').trim();
+  const slug = (storySlug || '').trim().toLowerCase();
+  const titleParts = title
+    .split(/[\s\-_/|·，。、《》()（）]+/)
+    .map((part) => part.trim())
+    .filter((part) => part.length >= 2);
+  const slugParts = slug
+    .split(/[^a-z0-9]+/)
+    .map((part) => part.trim())
+    .filter((part) => part.length >= 3);
+
+  const mappedSlugHints = slugParts.flatMap((part) => {
+    if (part.includes('hospital')) return ['hospital', '医院'];
+    if (part.includes('manor')) return ['manor', '庄园'];
+    if (part.includes('clinic')) return ['clinic', '诊所'];
+    return [part];
+  });
+
+  const semanticHints: string[] = [];
+  if (title.includes('医院')) semanticHints.push('医院');
+  if (title.includes('庄园')) semanticHints.push('庄园');
+  if (title.includes('山庄')) semanticHints.push('山庄');
+  if (title.includes('诊所')) semanticHints.push('诊所');
+
+  return uniqNonEmpty([title, ...titleParts, ...mappedSlugHints, ...semanticHints]);
+};
+
+const buildPlotItemKeywords = (storyTitle?: string | null, storySlug?: string | null): string[] => {
+  if (isChongshanStory(storyTitle, storySlug)) {
+    return CHONGSHAN_PLOT_ITEM_KEYWORDS;
+  }
+  return uniqNonEmpty([...BASE_PLOT_ITEM_KEYWORDS, ...extractStoryKeywords(storyTitle, storySlug)]);
 };
 
 const clamp = (value: number, min: number, max: number): number => {
@@ -268,7 +371,7 @@ const countTrailingAction = (actions: ActionType[], target: ActionType): number 
   return count;
 };
 
-const looksLikePlotItem = (item: Evidence): boolean => {
+const looksLikePlotItem = (item: Evidence, plotItemKeywords: string[]): boolean => {
   if (!item || item.id === 'init_1') {
     return false;
   }
@@ -280,7 +383,7 @@ const looksLikePlotItem = (item: Evidence): boolean => {
   }
 
   const text = `${item.name} ${item.description}`;
-  return textIncludesAny(text, PLOT_ITEM_KEYWORDS);
+  return textIncludesAny(text, plotItemKeywords);
 };
 
 const ensureChoiceShape = (choices: GeminiResponse['choices'], locationName: string): Choice[] => {
@@ -349,11 +452,48 @@ const buildVerificationChoice = (): Choice => {
   };
 };
 
-const buildEndgameChoices = (): Choice[] => {
+const buildEndgameChoices = (params: {
+  storyTitle?: string | null;
+  storySlug?: string | null;
+  currentAction: string;
+  currentRules: string[];
+  inventory: Evidence[];
+  locationName: string;
+}): Choice[] => {
+  if (isChongshanStory(params.storyTitle, params.storySlug)) {
+    return [
+      { id: 'end_1', text: '冲向屋顶出口，赌一次彻底脱离医院封锁', actionType: 'risky' },
+      { id: 'end_2', text: '携带关键物件下潜裂缝核心，执行最后封印', actionType: 'risky' },
+      { id: 'end_3', text: '回到赵医生处完成最终核验并立刻执行结果', actionType: 'investigate' },
+    ];
+  }
+
+  const aggregateText = [
+    params.storyTitle || '',
+    params.storySlug || '',
+    params.currentAction,
+    params.locationName,
+    ...params.currentRules,
+    ...params.inventory.map((item) => `${item.name} ${item.description}`),
+  ].join(' ');
+
+  const escapeTarget = textIncludesAny(aggregateText, ['庄园', 'manor', '山庄'])
+    ? '庄园外门'
+    : textIncludesAny(aggregateText, ['医院', 'hospital', '病房'])
+      ? '医院出口'
+      : '外部出口';
+  const coreTarget = textIncludesAny(aggregateText, ['封印', '裂缝', '仪式', '祭坛'])
+    ? '核心封印区'
+    : textIncludesAny(aggregateText, ['地下', '地窖', '地下室'])
+      ? '地下核心区'
+      : '核心区域';
+  const verifyAnchor = params.inventory.find((item) => item.type === 'key' || item.type === 'document');
+  const verifyTarget = verifyAnchor?.name?.trim() ? `“${verifyAnchor.name.trim()}”` : '关键线索源';
+
   return [
-    { id: 'end_1', text: '冲向屋顶出口，赌一次彻底脱离医院封锁', actionType: 'risky' },
-    { id: 'end_2', text: '携带关键物件下潜裂缝核心，执行最后封印', actionType: 'risky' },
-    { id: 'end_3', text: '回到赵医生处完成最终核验并立刻执行结果', actionType: 'investigate' },
+    { id: 'end_1', text: `冲向${escapeTarget}，赌一次彻底脱离当前封锁`, actionType: 'risky' },
+    { id: 'end_2', text: `携带关键物件前往${coreTarget}，执行最后闭环`, actionType: 'risky' },
+    { id: 'end_3', text: `先核对${verifyTarget}与现行规则冲突，再执行最终决断`, actionType: 'investigate' },
   ];
 };
 
@@ -381,6 +521,8 @@ const analyzeDifficultyDirectorState = (
   turnNumber: number,
   maxTurns: number,
   directorMode: 'default' | 'lab',
+  storyTitle?: string | null,
+  storySlug?: string | null,
 ): DifficultyDirectorState => {
   const actionRecords = parseChoiceRecordsFromHistory(history);
   const actionTypes = actionRecords.map((record) => record.actionType);
@@ -389,7 +531,8 @@ const analyzeDifficultyDirectorState = (
   const consecutiveRisky = countTrailingAction(actionTypes, 'risky');
   const riskyRatio = actionTypes.length ? riskyCount / actionTypes.length : 0;
 
-  const plotItemCount = inventory.filter(looksLikePlotItem).length;
+  const plotItemKeywords = buildPlotItemKeywords(storyTitle, storySlug);
+  const plotItemCount = inventory.filter((item) => looksLikePlotItem(item, plotItemKeywords)).length;
   const clueItemCount = inventory.filter((item) => item.type === 'document' || item.type === 'photo').length;
 
   const strictVerificationActions = actionRecords.filter((record) => {
@@ -493,6 +636,8 @@ const applyDifficultyDirector = ({
   currentAction,
   currentSanity,
   directorMode,
+  storyTitle,
+  storySlug,
 }: DifficultyDirectorInput): GeminiResponse => {
   const isLab = directorMode === 'lab';
   const hardEndingTurn = maxTurns + ENDING_GRACE_TURNS;
@@ -577,7 +722,14 @@ const applyDifficultyDirector = ({
       tuned.narrative,
       `终章冲刺已开始：请在剩余${Math.max(0, hardEndingTurn - turnNumber)}回合内做出最终抉择，故事必须收束到胜利或死亡。`,
     );
-    tuned.choices = ensureChoiceShape(buildEndgameChoices(), tuned.location_name);
+    tuned.choices = ensureChoiceShape(buildEndgameChoices({
+      storyTitle,
+      storySlug,
+      currentAction,
+      currentRules,
+      inventory,
+      locationName: tuned.location_name,
+    }), tuned.location_name);
   }
 
   if (turnNumber >= hardEndingTurn && !tuned.is_game_over) {
@@ -624,15 +776,19 @@ export const generateNextTurnServer = async ({
   currentSanity = 100,
   inventory = [],
   gameConfig = DEFAULT_GAME_CONFIG,
+  systemInstructionOverride,
+  outputLocale = 'zh-CN',
   isOvertime = false,
   labMode = false,
+  storyTitle,
+  storySlug,
 }: GenerateTurnInput): Promise<GeminiResponse> => {
   const effectiveApiKey = apiKey || process.env.API_KEY;
   if (!effectiveApiKey) {
     throw new Error('API Key not found');
   }
 
-  const systemInstruction = buildSystemInstruction(gameConfig);
+  const systemInstruction = (systemInstructionOverride || '').trim() || buildSystemInstruction(gameConfig);
   const rulesContext = currentRules.length > 0
     ? `Current Known Rules (DO NOT REPEAT THESE):\n${currentRules.map((r) => `- ${r}`).join('\n')}`
     : 'Current Known Rules: None';
@@ -653,6 +809,8 @@ export const generateNextTurnServer = async ({
     turnNumber,
     gameConfig.maxTurns,
     directorMode,
+    storyTitle,
+    storySlug,
   );
   const directorContext = buildDirectorContext(directorState, directorMode);
 
@@ -660,6 +818,7 @@ export const generateNextTurnServer = async ({
 Current Turn Number: ${turnNumber} / Target: ${gameConfig.maxTurns}
 Game Phase: ${gamePhase}
 Current Sanity: ${currentSanity}/100
+Target Output Locale: ${outputLocale}
 
 ${rulesContext}
 
@@ -671,6 +830,10 @@ Previous History:
 ${history.join('\n')}
 
 Player Action: ${currentAction}
+
+Locale constraint:
+- Use locale ${outputLocale} for all player-visible text fields.
+- Keep JSON keys and enum values unchanged.
 ${turnNumber >= hardEndingTurn - 1 ? `
 ⚠️ HARD ENDING CAP:
 You are at the hard ending boundary. You MUST resolve to a conclusive ending THIS TURN.
@@ -684,8 +847,7 @@ You are at or near the target turn count. You should set is_game_over=true this 
 Begin wrapping up the narrative. REMEMBER: Focus on resolving the PLOT (items/exit). Sanity adds flavor but is not the sole win condition.` : ''}
 `;
 
-  const isAiStudio = !!process.env.API_KEY;
-  const effectiveProvider = isAiStudio ? 'gemini' : provider;
+  const effectiveProvider = provider;
 
   if (effectiveProvider === 'gemini') {
     const options: any = { apiKey: effectiveApiKey };
@@ -695,7 +857,7 @@ Begin wrapping up the narrative. REMEMBER: Focus on resolving the PLOT (items/ex
 
     const ai = new GoogleGenAI(options);
     const response = await ai.models.generateContent({
-      model: 'gemini-3-flash-preview',
+      model: model || 'gemini-3-flash-preview',
       contents: [{ role: 'user', parts: [{ text: prompt }] }],
       config: {
         systemInstruction,
@@ -721,6 +883,8 @@ Begin wrapping up the narrative. REMEMBER: Focus on resolving the PLOT (items/ex
       currentAction,
       currentSanity,
       directorMode,
+      storyTitle,
+      storySlug,
     });
   }
 
@@ -769,6 +933,8 @@ Begin wrapping up the narrative. REMEMBER: Focus on resolving the PLOT (items/ex
     currentAction,
     currentSanity,
     directorMode,
+    storyTitle,
+    storySlug,
   });
 };
 
