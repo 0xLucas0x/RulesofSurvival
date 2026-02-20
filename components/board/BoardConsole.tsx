@@ -39,6 +39,7 @@ const texts = {
     iconHeart: '生命监测',
     iconSensors: '传感器',
     iconOverride: '紧急接管',
+    notAvailable: '系统提示：功能暂未开放',
   },
   en: {
     title: 'Observer Console',
@@ -66,6 +67,7 @@ const texts = {
     iconHeart: 'Vital Monitor',
     iconSensors: 'Sensors',
     iconOverride: 'Emergency Override',
+    notAvailable: 'System Notice: Feature Not Available',
   },
 };
 
@@ -121,6 +123,16 @@ export const BoardConsole = () => {
   const [selectedRunId, setSelectedRunId] = useState('');
   const [clock, setClock] = useState(new Date());
   const [serverTime, setServerTime] = useState('');
+  const [mounted, setMounted] = useState(false);
+  const [showMapModal, setShowMapModal] = useState(false);
+  const [toastMessage, setToastMessage] = useState('');
+  const toastTimerRef = useRef<number | null>(null);
+
+  const showToast = useCallback((msg: string) => {
+    if (toastTimerRef.current) window.clearTimeout(toastTimerRef.current);
+    setToastMessage(msg);
+    toastTimerRef.current = window.setTimeout(() => setToastMessage(''), 2500);
+  }, []);
 
   const reconnectTimerRef = useRef<number | null>(null);
   const lastEventIdRef = useRef('0-0');
@@ -166,6 +178,7 @@ export const BoardConsole = () => {
   }, [hydrateSnapshot]);
 
   useEffect(() => {
+    setMounted(true);
     const timer = window.setInterval(() => setClock(new Date()), 1000);
     return () => window.clearInterval(timer);
   }, []);
@@ -344,7 +357,7 @@ export const BoardConsole = () => {
         <div className="flex items-center gap-4 text-[10px] font-mono tracking-wider">
           <div className="text-right">
             <div className="text-slate-500">{t.systemTime}</div>
-            <div className="text-white">{formatTime(clock)}</div>
+            <div className="text-white">{mounted ? formatTime(clock) : '--:--:--'}</div>
           </div>
           <div className="text-right">
             <div className="text-slate-500">{t.stream}</div>
@@ -434,8 +447,8 @@ export const BoardConsole = () => {
                   key={run.runId}
                   onClick={() => setSelectedRunId(run.runId)}
                   className={`w-full rounded border px-3 py-2 text-left text-xs transition-colors ${selectedRunId === run.runId
-                      ? 'border-red-500 bg-red-500/15 text-red-200'
-                      : 'border-slate-700 bg-black/40 text-slate-300 hover:border-red-500/40'
+                    ? 'border-red-500 bg-red-500/15 text-red-200'
+                    : 'border-slate-700 bg-black/40 text-slate-300 hover:border-red-500/40'
                     }`}
                 >
                   <div className="flex items-center justify-between">
@@ -496,9 +509,10 @@ export const BoardConsole = () => {
           ].map(([icon, label], idx) => (
             <button
               key={icon}
+              onClick={icon === 'map' ? () => setShowMapModal(true) : () => showToast(t.notAvailable)}
               className={`flex h-10 w-10 items-center justify-center rounded border bg-slate-800 transition-colors ${idx === 0
-                  ? 'border-red-500/60 text-red-400 hover:bg-red-500/20'
-                  : 'border-slate-700 text-slate-400 hover:border-cyan-500/50 hover:text-cyan-300'
+                ? 'border-red-500/60 text-red-400 hover:bg-red-500/20'
+                : 'border-slate-700 text-slate-400 hover:border-cyan-500/50 hover:text-cyan-300'
                 }`}
               title={label}
             >
@@ -507,6 +521,7 @@ export const BoardConsole = () => {
           ))}
           <div className="my-2 h-full w-px bg-slate-800" />
           <button
+            onClick={() => showToast(t.notAvailable)}
             className="flex h-10 w-10 items-center justify-center rounded border border-red-500/50 bg-red-500/10 text-red-300 transition-colors hover:bg-red-500/20"
             title={t.iconOverride}
           >
@@ -516,6 +531,39 @@ export const BoardConsole = () => {
       </div>
 
       <BoardEventLog events={events} lang={lang} />
+
+      {toastMessage && (
+        <div className="pointer-events-none fixed left-1/2 top-20 z-50 -translate-x-1/2 rounded border border-cyan-500/40 bg-black/80 px-4 py-2 text-sm text-cyan-300 shadow-[0_0_15px_rgba(0,255,255,0.2)] backdrop-blur-sm transition-all duration-300 animate-in fade-in slide-in-from-top-4">
+          <div className="flex items-center gap-2">
+            <span className="material-symbols-outlined text-sm">info</span>
+            {toastMessage}
+          </div>
+        </div>
+      )}
+
+      {showMapModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm"
+          onClick={() => setShowMapModal(false)}
+        >
+          <div
+            className="relative flex max-h-[90vh] max-w-[90vw] flex-col overflow-hidden rounded-lg border border-cyan-500/30 bg-[#0d0d0d] p-2 shadow-[0_0_30px_rgba(0,255,255,0.15)]"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button
+              className="absolute right-4 top-4 z-10 flex h-8 w-8 items-center justify-center rounded-full bg-black/60 text-white transition-colors hover:bg-red-500"
+              onClick={() => setShowMapModal(false)}
+            >
+              <span className="material-symbols-outlined text-sm">close</span>
+            </button>
+            <img
+              src="/images/chongshan_hospital_map.png"
+              alt="Chongshan Hospital Map"
+              className="h-auto max-h-[85vh] w-auto max-w-full object-contain filter contrast-[1.15] saturate-[0.85]"
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 };

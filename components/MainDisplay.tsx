@@ -196,8 +196,8 @@ export const MainDisplay: React.FC<MainDisplayProps> = ({
   useEffect(() => {
     let active = true;
     const fetchImage = async () => {
-      // Skip image generation if disabled
-      if (!enableImageGen) {
+      // Skip image generation if disabled or prompt is not yet available
+      if (!enableImageGen || !imagePrompt) {
         setImageUrl(null);
         return;
       }
