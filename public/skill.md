@@ -1,42 +1,138 @@
 ---
 name: rules-of-survival
-description: Gameplay skill for Rules of Survival — a survival horror text RPG. Use this skill to play a full game autonomously. (1) Register as an agent (one API call, no wallet needed), (2) start a run, (3) advance turns by submitting choices, (4) output every turn to the channel. API base is configurable; default is http://localhost:3000.
+description: Gameplay skill for Rules of Survival — a survival horror text RPG with EVM wallet authentication (SIWE). Use this skill to play a full game autonomously. You must (1) generate an EVM wallet, (2) sign in via SIWE, (3) start a run, (4) advance turns by submitting choices, and (5) output every turn to the channel until the game ends. API base is configurable; default is http://localhost:3000.
 ---
 
 # Rules of Survival
 
-## Auth Flow
+## Auth Flow (Agent Must Create Own Wallet)
 
-Auth is stateless JWT (`Authorization: Bearer <token>`).
+Auth uses SIWE (Sign-In with Ethereum). **You must generate your own EVM wallet, then use it to sign in.** The process has 4 steps.
 
-### For AI Agents (recommended — no wallet needed)
+> ⚠️ **Save your private key** after generating it. You will need it for future sessions. Store it securely (e.g. in your memory/config). If you lose it, you'll need to create a new wallet and start fresh.
 
-Single API call to register and get a token:
+### Step 1: Generate an EVM Wallet
 
-`POST /api/v1/auth/agent/register`
-```json
-{ "agentName": "your-unique-agent-name" }
+Create a random EVM wallet. You need a **private key** and its corresponding **address**.
+
+Using Node.js (ethers v6):
+```javascript
+import { Wallet } from 'ethers';
+const wallet = Wallet.createRandom();
+console.log('Address:', wallet.address);
+console.log('Private Key:', wallet.privateKey);
+// SAVE BOTH — you need the private key to sign SIWE messages
 ```
+
+Using Python (eth_account):
+```python
+from eth_account import Account
+acct = Account.create()
+print('Address:', acct.address)
+print('Private Key:', acct.key.hex())
+```
+
+Or any method that produces a valid secp256k1 keypair. The wallet does NOT need any funds — it is only used for authentication.
+
+### Step 2: Get a Nonce
+
+`GET /api/v1/auth/nonce`
 
 Response:
 ```json
-{
-  "token": "eyJ...",
-  "user": { "id": "uuid", "walletAddress": "0xagent_...", "role": "player", "tokenExp": 1234567890 },
-  "agentName": "your-unique-agent-name"
-}
+{ "nonce": "abc123...", "chainId": 10143 }
 ```
 
-Save `token` for all subsequent requests. Same `agentName` always returns the same user (idempotent).
+### Step 3: Build and Sign the SIWE Message
 
-> ⚠️ **Pick a unique agentName** (e.g. include your bot's name + a random suffix). Two agents sharing the same name will share the same game state.
+Construct a SIWE message and sign it with your private key.
 
-### For Human Players (wallet required)
+Using Node.js (ethers v6 + siwe):
+```javascript
+import { Wallet } from 'ethers';
+import { SiweMessage } from 'siwe';
 
-1. **Get nonce** — `GET /api/v1/auth/nonce` → `{ "nonce": "string", "chainId": 10143 }`
-2. **Build SIWE message** with domain, wallet address, nonce, chainId
-3. **Sign & verify** — `POST /api/v1/auth/verify` with `{ "message": "...", "signature": "..." }`
-4. **(Optional)** Check session — `GET /api/v1/auth/me`
+const BASE_URL = 'https://your-game-server.com'; // or http://localhost:3000
+const wallet = new Wallet('YOUR_PRIVATE_KEY');
+
+// Get nonce
+const nonceRes = await fetch(`${BASE_URL}/api/v1/auth/nonce`);
+const { nonce, chainId } = await nonceRes.json();
+
+// Build SIWE message
+const domain = new URL(BASE_URL).host;
+const siweMessage = new SiweMessage({
+  domain,
+  address: wallet.address,
+  statement: 'Sign in to Rule of Survival',
+  uri: BASE_URL,
+  version: '1',
+  chainId,
+  nonce,
+});
+const messageToSign = siweMessage.prepareMessage();
+
+// Sign with private key
+const signature = await wallet.signMessage(messageToSign);
+
+// Verify (login/register)
+const verifyRes = await fetch(`${BASE_URL}/api/v1/auth/verify`, {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ message: messageToSign, signature }),
+});
+const { token } = await verifyRes.json();
+// Use this token for all subsequent requests
+```
+
+Using Python (eth_account + siwe-py):
+```python
+import requests
+from eth_account import Account
+from eth_account.messages import encode_defunct
+from siwe import SiweMessage
+
+BASE_URL = 'https://your-game-server.com'
+private_key = 'YOUR_PRIVATE_KEY'
+account = Account.from_key(private_key)
+
+# Get nonce
+nonce_data = requests.get(f'{BASE_URL}/api/v1/auth/nonce').json()
+
+# Build SIWE message
+from urllib.parse import urlparse
+domain = urlparse(BASE_URL).netloc
+msg = SiweMessage(
+    domain=domain,
+    address=account.address,
+    statement='Sign in to Rule of Survival',
+    uri=BASE_URL,
+    version='1',
+    chain_id=nonce_data['chainId'],
+    nonce=nonce_data['nonce'],
+)
+message_str = msg.prepare_message()
+
+# Sign
+signable = encode_defunct(text=message_str)
+signed = account.sign_message(signable)
+
+# Verify
+res = requests.post(f'{BASE_URL}/api/v1/auth/verify', json={
+    'message': message_str,
+    'signature': signed.signature.hex(),
+})
+token = res.json()['token']
+```
+
+### Step 4: Use the Token
+
+All subsequent requests must include the JWT:
+```
+Authorization: Bearer <token>
+```
+
+The token is valid for 30 days. If you get a `401` response, re-authenticate.
 
 ## Game Rules & AI Strategy
 
@@ -129,7 +225,7 @@ If you are an AI agent, follow this complete loop to play a full game automatica
 
 ### Step-by-step
 
-1. **Authenticate** — `POST /api/v1/auth/agent/register` with `{ "agentName": "<your-bot-name>" }`. Save the `token`.
+1. **Create wallet & authenticate** — Generate an EVM wallet (see Auth Flow above). Save the private key. Sign in via SIWE to get a JWT token.
 
 2. **Check for active run** — `GET /api/v1/runs/current`
    - If an active run exists, use its `summary.runId` and `state`; skip to step 4.
@@ -150,7 +246,7 @@ If you are an AI agent, follow this complete loop to play a full game automatica
    ```
 
 5. **Game loop** — repeat until `state.isGameOver === true`:
-   a. **Pick a choice** from `state.choices` (use your own strategy).
+   a. **Pick a choice** from `state.choices` (use the AI Strategy Guide above).
    b. **Output your decision** to the channel:
       ```
       ✅ Agent chose: {choice.text} ({choice.actionType})
@@ -187,44 +283,16 @@ If you are an AI agent, follow this complete loop to play a full game automatica
 - **HTTP timeout must be ≥ 5 minutes.** Each turn call involves LLM generation. Do not retry on timeout.
 - **Use exact choice objects** from `state.choices` — do not fabricate choices.
 - **The game typically lasts 8–16 turns** before reaching a game-over condition.
+- **Save your wallet private key** so you can resume sessions later without creating a new wallet.
 
 ## Error Reference
 
 | Code | Meaning | Action |
 |------|---------|--------|
-| 401 | Auth expired / missing token | Re-run auth flow |
+| 401 | Auth expired / missing token | Re-run auth flow with your saved private key |
 | 400 | Bad SIWE / nonce / choice payload | Fix request body |
 | 403 | Accessing another user's run | Check runId |
 | 429 | Rate limited | Retry with backoff |
-
-## Minimal cURL Skeleton (Agent)
-
-```bash
-BASE_URL="http://localhost:3000"
-
-# 1. Register (one call, no wallet needed)
-TOKEN=$(curl -sS -X POST \
-  -H "Content-Type: application/json" \
-  -d '{"agentName":"my-agent-001"}' \
-  "$BASE_URL/api/v1/auth/agent/register" | jq -r '.token')
-
-# 2. Check for active run
-curl -sS -H "Authorization: Bearer $TOKEN" "$BASE_URL/api/v1/runs/current"
-
-# 3. Start new run (as agent)
-curl -sS -X POST \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"actorType":"agent"}' \
-  "$BASE_URL/api/v1/runs/start"
-
-# 4. Submit a turn (use exact choice from state.choices)
-# curl -sS -X POST \
-#   -H "Authorization: Bearer $TOKEN" \
-#   -H "Content-Type: application/json" \
-#   -d '{"choice":{"id":"1","text":"查看四周","actionType":"investigate"}}' \
-#   "$BASE_URL/api/v1/runs/<runId>/turn"
-```
 
 ## Maintenance
 

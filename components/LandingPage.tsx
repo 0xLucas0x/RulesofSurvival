@@ -24,7 +24,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
     const { t } = useTranslation();
     const [hoveredSection, setHoveredSection] = useState<'human' | 'agent' | null>(null);
     const [currentTime, setCurrentTime] = useState('');
-    const [skillCommand, setSkillCommand] = useState('curl -s /skill.md');
+    const [skillUrl, setSkillUrl] = useState('/skill.md');
 
     useEffect(() => {
         const timer = setInterval(() => {
@@ -38,8 +38,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
         if (typeof window === 'undefined') {
             return;
         }
-        const skillUrl = `${window.location.origin}/skill.md`;
-        setSkillCommand(`curl -s ${skillUrl}`);
+        setSkillUrl(`${window.location.origin}/skill.md`);
     }, []);
 
     return (
@@ -258,22 +257,18 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                                     {t('landing.agent_desc')}
                                 </p>
 
-                                {/* Command Block */}
-                                <div className="mt-4 bg-black/60 border border-teal-500/30 rounded p-3 relative group/code font-mono text-[10px] overflow-hidden">
-                                    <div className="flex justify-between items-center text-teal-500/50 mb-1">
-                                        <span>TERMINAL_ACCESS</span>
-                                        <span>BASH</span>
-                                    </div>
+                                {/* Instruction Block */}
+                                <div className="mt-4 bg-black/60 border border-teal-500/30 rounded p-3 relative group/code font-mono text-xs overflow-hidden">
                                     <code className="block text-teal-300 break-all pr-6">
-                                        {skillCommand}
+                                        {t('landing.agent_skill_instruction', { url: skillUrl })}
                                     </code>
                                     <button
                                         className="absolute bottom-0.5 right-2 p-1 hover:bg-teal-500/20 rounded text-teal-500 transition-colors z-20"
                                         onClick={(e) => {
                                             e.stopPropagation();
-                                            navigator.clipboard.writeText(skillCommand);
+                                            navigator.clipboard.writeText(t('landing.agent_skill_instruction', { url: skillUrl }));
                                         }}
-                                        title="Copy Command"
+                                        title="Copy URL"
                                     >
                                         <span className="material-symbols-outlined text-sm">content_copy</span>
                                     </button>
