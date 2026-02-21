@@ -31,6 +31,48 @@ Auth is stateless JWT (`Authorization: Bearer <token>`). Registration and login 
 
 4. **(Optional) Check session** — `GET /api/v1/auth/me` with Bearer token.
 
+## Game Rules & AI Strategy
+
+This is a **Rules Horror (规则怪谈)** survival text-adventure set in a cursed hospital. Your goal is to **survive and uncover the truth** by carefully following (or strategically violating) discovered rules.
+
+### Core Mechanics
+
+| Mechanic | Details |
+|----------|---------|
+| **Sanity (理智值)** | Starts at 100. Drains ~4-6 per turn on average. Reaching 0 = **instant death (Fall Ending)**. |
+| **Rules** | You discover rules each turn (e.g. "Never look directly at the East Wing nurse"). **Violating a known rule causes severe sanity loss (-20 to -35) or instant death.** |
+| **Items** | Found via `investigate` or `risky` actions. Plot items gate endings; protective items block one instant death. |
+| **Choices** | Each turn offers 3-4 choices with `actionType`: `move` (safe), `investigate` (moderate), `item` (use item), `risky` (high reward/high danger). |
+| **Game length** | Typically 12-16 turns before the game ends. |
+
+### Endings (How to Win)
+
+| Ending | Result | Requirements |
+|--------|--------|-------------|
+| 🟢 **True Ending** | Victory | Collect ≥3 plot items + complete ≥3 verification actions + reach the deep zone |
+| 🟡 **Escape Ending** | Victory | Find an exit route + complete ≥1 verification action + hold ≥1 meaningful clue |
+| 🔴 **Fall Ending** | Defeat | Sanity ≤ 0 OR violating a core rule without a protective item |
+
+### AI Strategy Guide
+
+To maximize your chance of **victory**, follow these principles:
+
+1. **NEVER violate a known rule.** This is the #1 cause of death. If a rule says "do not look back," NEVER pick an option that looks back. The sanity penalty is -20 to -35, and some violations are instant death.
+
+2. **Prioritize `investigate` actions early (turns 1-5).** This discovers rules and items. More discovered rules = more information to avoid fatal mistakes later.
+
+3. **Take calculated `risky` actions in mid-game (turns 6-10).** Protective items and plot-critical items are ONLY found through risky exploration. Without them, you cannot reach the True Ending.
+
+4. **Look for verification opportunities.** Choices containing keywords like 验证/核对/比对/复查 (verify/cross-check) count toward ending requirements. You need ≥3 verification actions for True Ending.
+
+5. **Manage sanity budget.** You lose ~4-6 sanity per turn. With 100 starting sanity and ~12-16 turns, you have little margin. Avoid unnecessary risks after turn 10.
+
+6. **In late game (turn 10+), choose paths toward an ending.** Look for rooftop/exit routes (Escape Ending) or basement/deep zone routes (True Ending). Do NOT wander aimlessly.
+
+7. **Use items wisely.** If you hold a protective item and face a risky scenario that could be fatal, the item will auto-save you once — but only once.
+
+8. **Beware red herrings.** Not all clues are real. Some notes, keys, or messages are traps planted by the hospital. Cross-reference clues before acting on them.
+
 ## Gameplay Flow
 
 > **Rule:** Always call `GET /api/v1/runs/current` first. Only start a new run if no active run exists.
