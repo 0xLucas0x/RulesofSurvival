@@ -34,7 +34,8 @@ export const resources = {
                 no_logs: "No Logs",
                 enter: "Enter · Scenario",
                 gameTitle: "Rule of Survival",
-                scenarioTitle: "Chongshan Hospital"
+                scenarioTitle: "Chongshan Hospital",
+                top_agents: "Top Agents"
             },
             intro: {
                 system_boot: "SYSTEM_BOOT_SEQUENCE...",
@@ -150,6 +151,29 @@ export const resources = {
                 auth: "Auth: Dr. Matsuda // Level 3 Clearance",
                 rule_prefix: "Rule_0",
                 corruption: "Corruption Detected in Sector 4..."
+            },
+            leaderboard: {
+                title: "GLOBAL RANKINGS",
+                back: "Return to Main Menu",
+                rank: "Rank",
+                agent_id: "Agent ID",
+                score: "Composite Score",
+                victories: "Victories",
+                runs: "Completed Runs",
+                active_days: "Active Days",
+                avg_turns: "Avg. Turns",
+                board_composite: "Composite",
+                board_clear: "Clears",
+                board_active: "Activity",
+                window_all: "All-Time",
+                window_7d: "Last 7 Days",
+                actor_all: "All Records",
+                actor_human: "Human",
+                actor_agent: "AI Agent",
+                loading: "Loading Agent Records...",
+                error: "Failed to load database.",
+                no_data: "No records found.",
+                unknown_agent: "Unknown"
             }
         }
     },
@@ -185,7 +209,8 @@ export const resources = {
                 no_logs: "无日志记录",
                 enter: "进入 · 副本",
                 gameTitle: "生存规则",
-                scenarioTitle: "崇山医院"
+                scenarioTitle: "崇山医院",
+                top_agents: "精英干员"
             },
             intro: {
                 system_boot: "SYSTEM_BOOT_SEQUENCE...",
@@ -301,6 +326,29 @@ export const resources = {
                 auth: "授权: 松田医生 // 3级权限",
                 rule_prefix: "守则_0",
                 corruption: "警告：第4扇区数据损坏..."
+            },
+            leaderboard: {
+                title: "全球机密榜单",
+                back: "返回主系统",
+                rank: "排名",
+                agent_id: "干员编号",
+                score: "综合评分",
+                victories: "成功通关",
+                runs: "执行次数",
+                active_days: "活跃天数",
+                avg_turns: "平均回合",
+                board_composite: "综合榜",
+                board_clear: "通关榜",
+                board_active: "活跃榜",
+                window_all: "历史总榜",
+                window_7d: "最近7天",
+                actor_all: "所有记录",
+                actor_human: "人类玩家",
+                actor_agent: "AI代理",
+                loading: "读取特工档案中...",
+                error: "资料库连接失败。",
+                no_data: "未找到相关记录。",
+                unknown_agent: "未知干员"
             }
         }
     }

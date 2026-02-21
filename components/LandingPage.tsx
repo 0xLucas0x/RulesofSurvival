@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
+import Link from 'next/link';
 import type { LandingStats } from '../types';
 
 interface LandingPageProps {
@@ -117,7 +118,9 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                             {t('landing.live_board')}
                         </button>
                     )}
-                    <span className="hidden md:inline hover:text-red-500 cursor-pointer transition-colors">{t('landing.database')}</span>
+                    <Link href="/leaderboard" className="hidden md:inline hover:text-red-500 cursor-pointer transition-colors border-b border-transparent hover:border-red-500 pb-0.5">
+                        {t('landing.top_agents')}
+                    </Link>
                     <span className="hidden md:inline hover:text-red-500 cursor-pointer transition-colors">{t('landing.personnel')}</span>
                     <span className="hidden md:inline text-red-500 animate-pulse">{t('landing.monitoring')}</span>
 
