@@ -12,6 +12,11 @@ enum UserRole {
   ADMIN
 }
 
+enum AuthProvider {
+  WALLET
+  GUEST
+}
+
 enum UserStatus {
   ACTIVE
   BANNED
@@ -60,10 +65,17 @@ enum StoryVersionSource {
   SEED
 }
 
+enum GuestInviteStatus {
+  ACTIVE
+  USED
+  REVOKED
+}
+
 model User {
   id             String               @id @default(uuid()) @db.Uuid
   walletAddress  String               @unique @map("wallet_address")
   role           UserRole             @default(PLAYER)
+  authProvider   AuthProvider         @default(WALLET) @map("auth_provider")
   status         UserStatus           @default(ACTIVE)
   createdAt      DateTime             @default(now()) @map("created_at")
   lastLoginAt    DateTime?            @map("last_login_at")
@@ -71,6 +83,8 @@ model User {
   revocations    JwtRevocation[]
   runs           GameRun[]
   runResults     RunResult[]
+  redeemedInvites GuestInviteCode[]   @relation("GuestInviteRedeemer")
+  createdInvites  GuestInviteCode[]   @relation("GuestInviteCreator")
   metricsAllTime UserMetricsAllTime?
   metrics7d      UserMetrics7d?
 
@@ -324,4 +338,24 @@ model LandingDailyStat {
   updatedAt    DateTime @updatedAt @map("updated_at")
 
   @@map("landing_daily_stats")
+}
+
+model GuestInviteCode {
+  id           String            @id @default(uuid()) @db.Uuid
+  codeHash     String            @unique @map("code_hash")
+  status       GuestInviteStatus @default(ACTIVE)
+  campaign     String?
+  expiresAt    DateTime?         @map("expires_at")
+  usedAt       DateTime?         @map("used_at")
+  usedByUserId String?           @db.Uuid @map("used_by_user_id")
+  createdBy    String?           @db.Uuid @map("created_by")
+  createdAt    DateTime          @default(now()) @map("created_at")
+  updatedAt    DateTime          @updatedAt @map("updated_at")
+  usedByUser   User?             @relation("GuestInviteRedeemer", fields: [usedByUserId], references: [id], onDelete: SetNull)
+  creator      User?             @relation("GuestInviteCreator", fields: [createdBy], references: [id], onDelete: SetNull)
+
+  @@index([status, expiresAt])
+  @@index([usedByUserId])
+  @@index([createdAt])
+  @@map("guest_invite_codes")
 }

@@ -1,4 +1,4 @@
-import { UserRole } from '@prisma/client';
+import { AuthProvider, UserRole } from '@prisma/client';
 import { SiweMessage, generateNonce } from 'siwe';
 import { NextRequest } from 'next/server';
 import { MONAD_TESTNET_CHAIN_ID, SIWE_NONCE_TTL_SECONDS, getAdminWalletSet, getSiweDomain } from './appConfig';
@@ -39,7 +39,7 @@ const ensureDomainAccepted = (messageDomain: string, hostHeader: string | null):
 export const verifySiweAndUpsertUser = async (
   request: NextRequest,
   payload: { message: string; signature: string },
-): Promise<{ id: string; walletAddress: string; role: UserRole }> => {
+): Promise<{ id: string; walletAddress: string; role: UserRole; authProvider: AuthProvider }> => {
   const { message, signature } = payload;
   if (!message || !signature) {
     throw new HttpError(400, 'message and signature are required');
@@ -80,11 +80,13 @@ export const verifySiweAndUpsertUser = async (
     where: { walletAddress },
     update: {
       role,
+      authProvider: AuthProvider.WALLET,
       lastLoginAt: new Date(),
     },
     create: {
       walletAddress,
       role,
+      authProvider: AuthProvider.WALLET,
       lastLoginAt: new Date(),
     },
   });
@@ -102,5 +104,6 @@ export const verifySiweAndUpsertUser = async (
     id: user.id,
     walletAddress: user.walletAddress,
     role: user.role,
+    authProvider: user.authProvider,
   };
 };

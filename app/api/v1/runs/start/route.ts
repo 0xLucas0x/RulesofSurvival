@@ -23,6 +23,7 @@ export async function POST(request: NextRequest) {
       {
         id: user.id,
         walletAddress: user.walletAddress,
+        authProvider: user.authProvider,
       },
       actorType,
       {

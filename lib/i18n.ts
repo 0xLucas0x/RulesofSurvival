@@ -35,7 +35,8 @@ export const resources = {
                 enter: "Enter · Scenario",
                 gameTitle: "Rule of Survival",
                 scenarioTitle: "Chongshan Hospital",
-                top_agents: "Top Agents"
+                top_agents: "Top Agents",
+                guest_trial: "Guest Trial (Invite Code)"
             },
             intro: {
                 system_boot: "SYSTEM_BOOT_SEQUENCE...",
@@ -137,12 +138,29 @@ export const resources = {
                 back: "Back",
                 session_lost: "Session lost. Return to landing.",
                 admin_only: "Agent mode is admin-only.",
+                guest_entry: "Guest Trial Access",
+                invite_hint: "Enter a one-time invite code to start your guest run.",
+                invite_code: "Invite Code",
+                invite_code_placeholder: "XXXX-XXXX-XXXX",
+                redeeming_invite: "Redeeming...",
+                redeem_invite: "Start Guest Trial",
+                trial_completed_title: "Guest Trial Completed",
+                trial_completed_desc: "This guest identity has already finished its single trial run.",
+                end_trial: "End Session",
                 errors: {
                     no_wallet_address: "Connected wallet has no address.",
                     signature_cancelled: "Wallet signature was cancelled.",
                     login_failed: "Wallet login failed.",
                     dynamic_not_configured: "Dynamic environment is not configured.",
-                    provider_loading: "Wallet provider is still loading. Please retry."
+                    provider_loading: "Wallet provider is still loading. Please retry.",
+                    invite_code_required: "Invite code is required.",
+                    invite_code_invalid: "Invite code format is invalid.",
+                    invite_code_not_found: "Invite code not found.",
+                    invite_code_used: "This invite code has already been used.",
+                    invite_code_expired: "This invite code has expired.",
+                    invite_code_revoked: "This invite code is no longer active.",
+                    guest_redeem_failed: "Failed to redeem invite code.",
+                    rate_limited: "Too many attempts. Please try again later."
                 }
             },
             rulebook: {
@@ -210,7 +228,8 @@ export const resources = {
                 enter: "进入 · 副本",
                 gameTitle: "生存规则",
                 scenarioTitle: "崇山医院",
-                top_agents: "精英干员"
+                top_agents: "精英干员",
+                guest_trial: "游客试玩（邀请码）"
             },
             intro: {
                 system_boot: "SYSTEM_BOOT_SEQUENCE...",
@@ -312,12 +331,29 @@ export const resources = {
                 back: "返回",
                 session_lost: "会话已失效，请返回落地页。",
                 admin_only: "Agent 模式仅管理员可用。",
+                guest_entry: "游客试玩入口",
+                invite_hint: "输入一次性邀请码即可开始游客试玩。",
+                invite_code: "邀请码",
+                invite_code_placeholder: "XXXX-XXXX-XXXX",
+                redeeming_invite: "兑换中...",
+                redeem_invite: "开始试玩",
+                trial_completed_title: "试玩资格已用完",
+                trial_completed_desc: "该游客身份已完成唯一一次试玩，无法再开启新局。",
+                end_trial: "结束会话",
                 errors: {
                     no_wallet_address: "已连接钱包缺少地址信息。",
                     signature_cancelled: "你已取消钱包签名。",
                     login_failed: "钱包登录失败。",
                     dynamic_not_configured: "尚未配置 Dynamic 环境。",
-                    provider_loading: "钱包连接器仍在加载，请稍后重试。"
+                    provider_loading: "钱包连接器仍在加载，请稍后重试。",
+                    invite_code_required: "请输入邀请码。",
+                    invite_code_invalid: "邀请码格式不正确。",
+                    invite_code_not_found: "邀请码不存在。",
+                    invite_code_used: "该邀请码已被使用。",
+                    invite_code_expired: "该邀请码已过期。",
+                    invite_code_revoked: "该邀请码已失效。",
+                    guest_redeem_failed: "邀请码兑换失败。",
+                    rate_limited: "请求过于频繁，请稍后重试。"
                 }
             },
             rulebook: {

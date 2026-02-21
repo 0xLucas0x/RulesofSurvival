@@ -24,6 +24,9 @@ const App: React.FC = () => {
       onHumanEnter={() => {
         window.location.href = '/game';
       }}
+      onGuestEnter={() => {
+        window.location.href = '/guest';
+      }}
       onAgentEnter={() => {
         // Agent entry is handled separately; keep existing alert
         const { t } = { t: i18n.t.bind(i18n) };

@@ -6,6 +6,7 @@ import type { LandingStats } from '../types';
 interface LandingPageProps {
     onHumanEnter: () => void;
     isHumanEntering?: boolean;
+    onGuestEnter?: () => void;
     onAgentEnter: () => void;
     onBoardEnter?: () => void;
     currentLanguage?: string;
@@ -16,6 +17,7 @@ interface LandingPageProps {
 export const LandingPage: React.FC<LandingPageProps> = ({
     onHumanEnter,
     isHumanEntering = false,
+    onGuestEnter,
     onAgentEnter,
     onBoardEnter,
     currentLanguage = 'en',
@@ -285,6 +287,18 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                         </div>
                     </div>
                 </div>
+
+                {onGuestEnter && (
+                    <div className="mt-6 w-full max-w-4xl px-4">
+                        <button
+                            onClick={onGuestEnter}
+                            className="w-full md:w-auto px-5 py-3 border border-amber-500/50 bg-amber-900/20 hover:bg-amber-900/40 text-amber-200 font-sc tracking-widest uppercase transition-colors flex items-center justify-center gap-2"
+                        >
+                            <span className="material-symbols-outlined text-[18px]">confirmation_number</span>
+                            {t('landing.guest_trial')}
+                        </button>
+                    </div>
+                )}
 
                 {/* Footer Stats */}
                 <div className="mt-16 grid grid-cols-2 md:grid-cols-4 gap-4 w-full max-w-4xl px-4 text-[10px] font-mono text-gray-500">

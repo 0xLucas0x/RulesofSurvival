@@ -116,6 +116,7 @@ Schema lives in `prisma/schema.prisma`. Core table groups:
 |---|---|---|
 | `GET` | `/api/v1/auth/nonce` | Issue a SIWE nonce |
 | `POST` | `/api/v1/auth/verify` | Verify signature — register or login (upsert) |
+| `POST` | `/api/v1/auth/guest/redeem` | Redeem guest invite code (one-time) |
 | `POST` | `/api/v1/auth/logout` | Revoke JWT |
 | `GET` | `/api/v1/auth/me` | Get current session |
 
@@ -144,6 +145,7 @@ Schema lives in `prisma/schema.prisma`. Core table groups:
 |---|---|---|
 | `GET/PUT` | `/api/v1/admin/config` | LLM / image runtime config |
 | `GET/PUT` | `/api/v1/admin/unlock-policy` | Image unlock policy |
+| `GET/POST` | `/api/v1/admin/guest-invites` | Guest invite management |
 | `POST/DELETE` | `/api/v1/admin/unlock-whitelist` | Wallet whitelist |
 | `POST/DELETE` | `/api/v1/admin/nft-requirements` | NFT-gated access rules |
 | `POST/DELETE` | `/api/v1/admin/token-requirements` | Token-gated access rules |
@@ -155,6 +157,7 @@ Schema lives in `prisma/schema.prisma`. Core table groups:
 | Route | Access |
 |---|---|
 | `/` | Public |
+| `/guest` | Public (invite-code guest entry) |
 | `/game`, `/intro` | Authenticated players |
 | `/board` | Public |
 | `/admin` | Admin wallets only |

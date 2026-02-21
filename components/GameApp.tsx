@@ -36,6 +36,11 @@ const buildState = (state: Partial<GameState>): GameState => ({
     isLoading: false,
 });
 
+const isGuestTrialConsumedError = (error: unknown): boolean => {
+    const message = (error as any)?.message;
+    return typeof message === 'string' && message.trim().toLowerCase() === 'guest_trial_consumed';
+};
+
 const GameShell: React.FC<{ wallet: WalletBridge }> = ({ wallet }) => {
     const { t } = useTranslation();
     const { primaryWallet, setShowAuthFlow, handleLogOut, sdkHasLoaded } = wallet;
@@ -54,6 +59,7 @@ const GameShell: React.FC<{ wallet: WalletBridge }> = ({ wallet }) => {
     const [imageUnlocked, setImageUnlocked] = useState(true);
     const [pendingEntry, setPendingEntry] = useState<'human' | null>(null);
     const [isEntryLoading, setIsEntryLoading] = useState(false);
+    const [guestTrialConsumed, setGuestTrialConsumed] = useState(false);
 
     const bootstrappedRef = useRef(false);
     const attemptedAutoLoginWalletRef = useRef<string | null>(null);
@@ -103,6 +109,7 @@ const GameShell: React.FC<{ wallet: WalletBridge }> = ({ wallet }) => {
         if (!started.recovered) {
             setAuthUser((prev) => (prev ? { ...prev, isFirstHumanEntry: false } : prev));
         }
+        setGuestTrialConsumed(false);
         setImageUnlocked(true);
         return started.summary;
     }, [runSummary]);
@@ -115,10 +122,23 @@ const GameShell: React.FC<{ wallet: WalletBridge }> = ({ wallet }) => {
                 if (user.isFirstHumanEntry && !alreadyPlayedIntro) {
                     setShowIntro(true);
                 } else {
-                    await ensureActiveRun();
-                    setShowIntro(false);
+                    try {
+                        await ensureActiveRun();
+                        setGuestTrialConsumed(false);
+                        setShowIntro(false);
+                    } catch (error) {
+                        if (user.authProvider === 'guest' && isGuestTrialConsumedError(error)) {
+                            setGuestTrialConsumed(true);
+                            setShowIntro(false);
+                            setShowAuthGate(false);
+                            setPendingEntry(null);
+                            return;
+                        }
+                        throw error;
+                    }
                 }
             } else {
+                setGuestTrialConsumed(false);
                 setShowIntro(false);
             }
             setShowAuthGate(false);
@@ -199,6 +219,7 @@ const GameShell: React.FC<{ wallet: WalletBridge }> = ({ wallet }) => {
         setShowAuthGate(false);
         setShowIntro(false);
         setPendingEntry(null);
+        setGuestTrialConsumed(false);
         attemptedAutoLoginWalletRef.current = null;
         // Go back to landing page after logout
         window.location.href = '/';
@@ -206,9 +227,20 @@ const GameShell: React.FC<{ wallet: WalletBridge }> = ({ wallet }) => {
 
     const startNarrative = useCallback(async () => {
         if (!authUser) { setShowAuthGate(true); setPendingEntry('human'); return; }
-        await ensureActiveRun();
-        setShowIntro(false);
-    }, [authUser, ensureActiveRun]);
+        try {
+            await ensureActiveRun();
+            setGuestTrialConsumed(false);
+            setShowIntro(false);
+        } catch (error) {
+            if (authUser.authProvider === 'guest' && isGuestTrialConsumedError(error)) {
+                setGuestTrialConsumed(true);
+                setShowIntro(false);
+                return;
+            }
+            console.error('Narrative start failed', error);
+            setAuthError(t('auth.errors.login_failed'));
+        }
+    }, [authUser, ensureActiveRun, t]);
 
     // On mount: check auth and auto-enter game (or show auth gate if not logged in).
     useEffect(() => {
@@ -216,7 +248,15 @@ const GameShell: React.FC<{ wallet: WalletBridge }> = ({ wallet }) => {
         if (authUser) {
             // Already logged in — enter the game directly.
             setIsEntryLoading(true);
-            prepareEntry(authUser).finally(() => setIsEntryLoading(false));
+            prepareEntry(authUser)
+                .catch((error) => {
+                    if (authUser.authProvider === 'guest' && isGuestTrialConsumedError(error)) {
+                        setGuestTrialConsumed(true);
+                        return;
+                    }
+                    console.error('Entry preparation failed', error);
+                })
+                .finally(() => setIsEntryLoading(false));
         } else {
             // Not logged in — show the auth gate immediately.
             setShowAuthGate(true);
@@ -302,6 +342,33 @@ const GameShell: React.FC<{ wallet: WalletBridge }> = ({ wallet }) => {
         return (
             <div className="h-screen w-screen bg-black text-gray-200 flex items-center justify-center font-header tracking-widest">
                 {t('auth.session_lost')}
+            </div>
+        );
+    }
+
+    if (guestTrialConsumed && authUser.authProvider === 'guest') {
+        return (
+            <div className="h-screen w-screen bg-black text-gray-200 flex flex-col items-center justify-center gap-6 px-6">
+                <h1 className="text-3xl md:text-4xl text-red-500 font-header tracking-[0.2em] text-center">
+                    {t('auth.trial_completed_title')}
+                </h1>
+                <p className="text-gray-400 text-center max-w-xl">
+                    {t('auth.trial_completed_desc')}
+                </p>
+                <div className="flex flex-wrap items-center justify-center gap-3">
+                    <button
+                        onClick={() => { window.location.href = '/'; }}
+                        className="px-6 py-2 bg-black hover:bg-gray-900 border border-gray-700 uppercase tracking-[0.2em] font-header"
+                    >
+                        {t('auth.back')}
+                    </button>
+                    <button
+                        onClick={() => void handleLogout()}
+                        className="px-6 py-2 bg-red-950 hover:bg-red-900 border border-red-600 uppercase tracking-[0.2em] font-header"
+                    >
+                        {t('auth.end_trial')}
+                    </button>
+                </div>
             </div>
         );
     }

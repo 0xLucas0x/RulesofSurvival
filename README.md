@@ -116,6 +116,7 @@ Schema 位于 `prisma/schema.prisma`，核心表分组如下：
 |---|---|---|
 | `GET` | `/api/v1/auth/nonce` | 获取 SIWE Nonce |
 | `POST` | `/api/v1/auth/verify` | 验签登录（新用户自动注册） |
+| `POST` | `/api/v1/auth/guest/redeem` | 邀请码游客登录（一次性） |
 | `POST` | `/api/v1/auth/logout` | 吊销 JWT |
 | `GET` | `/api/v1/auth/me` | 获取当前会话 |
 
@@ -144,6 +145,7 @@ Schema 位于 `prisma/schema.prisma`，核心表分组如下：
 |---|---|---|
 | `GET/PUT` | `/api/v1/admin/config` | LLM / 图像运行时配置 |
 | `GET/PUT` | `/api/v1/admin/unlock-policy` | 图像解锁策略 |
+| `GET/POST` | `/api/v1/admin/guest-invites` | 游客邀请码管理 |
 | `POST/DELETE` | `/api/v1/admin/unlock-whitelist` | 钱包白名单 |
 | `POST/DELETE` | `/api/v1/admin/nft-requirements` | NFT 门控规则 |
 | `POST/DELETE` | `/api/v1/admin/token-requirements` | Token 门控规则 |
@@ -155,6 +157,7 @@ Schema 位于 `prisma/schema.prisma`，核心表分组如下：
 | 路由 | 权限 |
 |---|---|
 | `/` | 公开 |
+| `/guest` | 公开（邀请码游客入口） |
 | `/game`，`/intro` | 已认证玩家 |
 | `/board` | 公开 |
 | `/admin` | 仅管理员钱包 |

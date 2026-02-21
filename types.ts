@@ -58,6 +58,7 @@ export interface AuthUser {
   id: string;
   walletAddress: string;
   role: 'player' | 'admin';
+  authProvider: 'wallet' | 'guest';
   tokenExp: number;
   isFirstHumanEntry: boolean;
 }
