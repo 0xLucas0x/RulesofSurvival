@@ -1,35 +1,42 @@
 ---
 name: rules-of-survival
-description: Gameplay skill for Rules of Survival — a wallet-authenticated (SIWE) survival horror text RPG. Use this skill to: (1) authenticate a player via wallet signature, (2) start or resume a run, (3) advance turns by submitting choices, and (4) detect run completion. Always resume an active run before starting a new one. API base is configurable; default local is http://localhost:3000.
+description: Gameplay skill for Rules of Survival — a survival horror text RPG. Use this skill to play a full game autonomously. (1) Register as an agent (one API call, no wallet needed), (2) start a run, (3) advance turns by submitting choices, (4) output every turn to the channel. API base is configurable; default is http://localhost:3000.
 ---
 
 # Rules of Survival
 
 ## Auth Flow
 
-Auth is stateless JWT (`Authorization: Bearer <token>`). Registration and login are the same endpoint (upsert).
+Auth is stateless JWT (`Authorization: Bearer <token>`).
 
-1. **Get nonce** — `GET /api/v1/auth/nonce`
-   ```json
-   { "nonce": "string", "chainId": 10143 }
-   ```
+### For AI Agents (recommended — no wallet needed)
 
-2. **Build SIWE message** with:
-   - `domain`: current host
-   - `address`: player wallet address
-   - `statement`: `Sign in to Rule of Survival`
-   - `uri`: current origin
-   - `version`: `1`
-   - `chainId` + `nonce`: from step 1
+Single API call to register and get a token:
 
-3. **Sign** with wallet, then **verify** — `POST /api/v1/auth/verify`
-   ```json
-   { "message": "<siwe-prepared-message>", "signature": "<wallet-signature>" }
-   ```
-   Response: `{ "token": "...", "user": { "id", "walletAddress", "role", "tokenExp", "isFirstHumanEntry" } }`
-   Save `token` for all subsequent requests.
+`POST /api/v1/auth/agent/register`
+```json
+{ "agentName": "your-unique-agent-name" }
+```
 
-4. **(Optional) Check session** — `GET /api/v1/auth/me` with Bearer token.
+Response:
+```json
+{
+  "token": "eyJ...",
+  "user": { "id": "uuid", "walletAddress": "0xagent_...", "role": "player", "tokenExp": 1234567890 },
+  "agentName": "your-unique-agent-name"
+}
+```
+
+Save `token` for all subsequent requests. Same `agentName` always returns the same user (idempotent).
+
+> ⚠️ **Pick a unique agentName** (e.g. include your bot's name + a random suffix). Two agents sharing the same name will share the same game state.
+
+### For Human Players (wallet required)
+
+1. **Get nonce** — `GET /api/v1/auth/nonce` → `{ "nonce": "string", "chainId": 10143 }`
+2. **Build SIWE message** with domain, wallet address, nonce, chainId
+3. **Sign & verify** — `POST /api/v1/auth/verify` with `{ "message": "...", "signature": "..." }`
+4. **(Optional)** Check session — `GET /api/v1/auth/me`
 
 ## Game Rules & AI Strategy
 
@@ -122,7 +129,7 @@ If you are an AI agent, follow this complete loop to play a full game automatica
 
 ### Step-by-step
 
-1. **Authenticate** — complete the Auth Flow above to obtain a JWT token.
+1. **Authenticate** — `POST /api/v1/auth/agent/register` with `{ "agentName": "<your-bot-name>" }`. Save the `token`.
 
 2. **Check for active run** — `GET /api/v1/runs/current`
    - If an active run exists, use its `summary.runId` and `state`; skip to step 4.
@@ -190,29 +197,33 @@ If you are an AI agent, follow this complete loop to play a full game automatica
 | 403 | Accessing another user's run | Check runId |
 | 429 | Rate limited | Retry with backoff |
 
-## Minimal cURL Skeleton
+## Minimal cURL Skeleton (Agent)
 
 ```bash
 BASE_URL="http://localhost:3000"
 
-# Auth
-NONCE=$(curl -sS "$BASE_URL/api/v1/auth/nonce")
-# Build & sign SIWE message using nonce + chainId from $NONCE
-
+# 1. Register (one call, no wallet needed)
 TOKEN=$(curl -sS -X POST \
   -H "Content-Type: application/json" \
-  -d '{"message":"<SIWE_MESSAGE>","signature":"<SIGNATURE>"}' \
-  "$BASE_URL/api/v1/auth/verify" | jq -r '.token')
+  -d '{"agentName":"my-agent-001"}' \
+  "$BASE_URL/api/v1/auth/agent/register" | jq -r '.token')
 
-# Resume-first
+# 2. Check for active run
 curl -sS -H "Authorization: Bearer $TOKEN" "$BASE_URL/api/v1/runs/current"
 
-# Start (agent)
+# 3. Start new run (as agent)
 curl -sS -X POST \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"actorType":"agent"}' \
   "$BASE_URL/api/v1/runs/start"
+
+# 4. Submit a turn (use exact choice from state.choices)
+# curl -sS -X POST \
+#   -H "Authorization: Bearer $TOKEN" \
+#   -H "Content-Type: application/json" \
+#   -d '{"choice":{"id":"1","text":"查看四周","actionType":"investigate"}}' \
+#   "$BASE_URL/api/v1/runs/<runId>/turn"
 ```
 
 ## Maintenance
