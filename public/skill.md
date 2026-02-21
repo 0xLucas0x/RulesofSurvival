@@ -1,185 +1,101 @@
 ---
-name: Rules of Survival
-description: Wallet-SIWE authenticated gameplay skill for Rules of Survival with persistent run resume.
+name: rules-of-survival
+description: Gameplay skill for Rules of Survival — a wallet-authenticated (SIWE) survival horror text RPG. Use this skill to: (1) authenticate a player via wallet signature, (2) start or resume a run, (3) advance turns by submitting choices, and (4) detect run completion. Always resume an active run before starting a new one. API base is configurable; default local is http://localhost:3000.
 ---
 
-# Rules of Survival Skill
+# Rules of Survival
 
-Use this skill to play Rules of Survival via HTTP APIs.
+## Auth Flow
 
-## Base Address
+Auth is stateless JWT (`Authorization: Bearer <token>`). Registration and login are the same endpoint (upsert).
 
-- Production: `https://<your-domain>`
-- Local: `http://localhost:3000`
-- All API paths below are relative to the base address.
+1. **Get nonce** — `GET /api/v1/auth/nonce`
+   ```json
+   { "nonce": "string", "chainId": 10143 }
+   ```
 
-## Critical Contract
-
-- Auth is JWT bearer token (`Authorization: Bearer <token>`).
-- Registration and login are combined in one step: `POST /api/v1/auth/verify` (upsert user).
-- Before starting a game, always load unfinished progress first.
-- If there is an active run, continue it. Do not create a new run.
-
-## Auth Flow (Address + Signature Register/Login)
-
-1. Get nonce:
-   - `GET /api/v1/auth/nonce`
-   - Response:
-     ```json
-     { "nonce": "string", "chainId": 10143 }
-     ```
-2. Build SIWE message with wallet address:
-   - `domain`: current host (for example `example.com`)
-   - `address`: user wallet address
+2. **Build SIWE message** with:
+   - `domain`: current host
+   - `address`: player wallet address
    - `statement`: `Sign in to Rule of Survival`
-   - `uri`: current origin (for example `https://example.com`)
+   - `uri`: current origin
    - `version`: `1`
-   - `chainId`: value from nonce API (`10143`)
-   - `nonce`: value from nonce API
-3. Ask wallet to sign the SIWE message.
-4. Verify signature (register or login):
-   - `POST /api/v1/auth/verify`
-   - Body:
-     ```json
-     {
-       "message": "<siwe-prepared-message>",
-       "signature": "<wallet-signature>"
-     }
-     ```
-   - Success response:
-     ```json
-     {
-       "token": "jwt-token",
-       "user": {
-         "id": "string",
-         "walletAddress": "0x...",
-         "role": "player",
-         "tokenExp": 9999999999,
-         "isFirstHumanEntry": false
-       }
-     }
-     ```
-   - Save `token` and attach it as Bearer token on all protected APIs.
-5. (Optional) Verify session:
-   - `GET /api/v1/auth/me`
-   - Header: `Authorization: Bearer <token>`
+   - `chainId` + `nonce`: from step 1
 
-## Gameplay Flow (Resume First)
+3. **Sign** with wallet, then **verify** — `POST /api/v1/auth/verify`
+   ```json
+   { "message": "<siwe-prepared-message>", "signature": "<wallet-signature>" }
+   ```
+   Response: `{ "token": "...", "user": { "id", "walletAddress", "role", "tokenExp", "isFirstHumanEntry" } }`
+   Save `token` for all subsequent requests.
 
-1. Load active run first:
-   - `GET /api/v1/runs/current`
-   - Header: `Authorization: Bearer <token>`
-   - If response is `{ "run": { ... } }` and `run.summary.status` is `active`, continue this run.
-2. If there is no active run, start one:
-   - `POST /api/v1/runs/start`
-   - Header: `Authorization: Bearer <token>`
-   - Default body:
-     ```json
-     {}
-     ```
-   - Typical response:
-     ```json
-     {
-       "summary": {
-         "runId": "string",
-         "status": "active",
-         "turnNo": 0,
-         "actorType": "human"
-       },
-       "state": {
-         "sanity": 100,
-         "location": "...",
-         "narrative": "...",
-         "choices": [],
-         "rules": [],
-         "inventory": [],
-         "turnCount": 0,
-         "isGameOver": false,
-         "isVictory": false
-       },
-       "recovered": false
-     }
-     ```
-3. Play turns in a loop until completed:
-   - `POST /api/v1/runs/{runId}/turn`
-   - Header: `Authorization: Bearer <token>`
-   - Body must use one exact choice from current state:
-     ```json
-     {
-       "choice": {
-         "id": "string",
-         "text": "string",
-         "actionType": "move"
-       }
-     }
-     ```
-   - Response:
-     ```json
-     {
-       "state": {
-         "sanity": 95,
-         "location": "...",
-         "narrative": "...",
-         "choices": [],
-         "rules": [],
-         "inventory": [],
-         "turnCount": 1,
-         "isGameOver": false,
-         "isVictory": false
-       },
-       "imageUnlocked": true
-     }
-     ```
-4. Stop conditions:
-   - `state.isGameOver === true` means run ended.
-   - `state.isVictory === true` means victory.
+4. **(Optional) Check session** — `GET /api/v1/auth/me` with Bearer token.
 
-## Resume Rule
+## Gameplay Flow
 
-On reconnect/restart/new session:
+> **Rule:** Always call `GET /api/v1/runs/current` first. Only start a new run if no active run exists.
 
-1. Re-auth if needed.
-2. Always call `GET /api/v1/runs/current`.
-3. If active run exists, continue from returned `state`.
-4. Only call `POST /api/v1/runs/start` when current run is `null`.
+### 1. Resume active run
+`GET /api/v1/runs/current` → if `run.summary.status === "active"`, continue from `run.state`.
 
-## Error Handling
+### 2. Start new run (only if no active run)
+`POST /api/v1/runs/start` with `{}` body.
 
-- `401`: auth expired or missing bearer token. Re-run auth flow.
-- `400`: invalid SIWE/nonce/signature or invalid choice payload.
-- `403`: forbidden (for example accessing another user run).
-- `429`: rate limited. Retry with backoff.
+Response:
+```json
+{
+  "summary": { "runId": "string", "status": "active", "turnNo": 0, "actorType": "human" },
+  "state": {
+    "sanity": 100, "location": "...", "narrative": "...",
+    "choices": [], "rules": [], "inventory": [],
+    "turnCount": 0, "isGameOver": false, "isVictory": false
+  },
+  "recovered": false
+}
+```
+
+### 3. Play turns (loop until game over)
+`POST /api/v1/runs/{runId}/turn` — body must use an exact choice from current state:
+```json
+{ "choice": { "id": "string", "text": "string", "actionType": "move" } }
+```
+
+Response: updated `state` + `"imageUnlocked": true/false`.
+
+Stop when:
+- `state.isGameOver === true` — run ended
+- `state.isVictory === true` — player won
+
+## Error Reference
+
+| Code | Meaning | Action |
+|------|---------|--------|
+| 401 | Auth expired / missing token | Re-run auth flow |
+| 400 | Bad SIWE / nonce / choice payload | Fix request body |
+| 403 | Accessing another user's run | Check runId |
+| 429 | Rate limited | Retry with backoff |
 
 ## Minimal cURL Skeleton
 
 ```bash
 BASE_URL="http://localhost:3000"
 
-# 1) nonce
-NONCE_JSON=$(curl -sS "$BASE_URL/api/v1/auth/nonce")
-# build & sign SIWE message with nonce and chainId from $NONCE_JSON
+# Auth
+NONCE=$(curl -sS "$BASE_URL/api/v1/auth/nonce")
+# Build & sign SIWE message using nonce + chainId from $NONCE
 
-# 2) sign message via wallet client, then verify
-LOGIN_JSON=$(curl -sS \
+TOKEN=$(curl -sS -X POST \
   -H "Content-Type: application/json" \
   -d '{"message":"<SIWE_MESSAGE>","signature":"<SIGNATURE>"}' \
-  "$BASE_URL/api/v1/auth/verify")
-TOKEN=$(echo "$LOGIN_JSON" | jq -r '.token')
+  "$BASE_URL/api/v1/auth/verify" | jq -r '.token')
 
-# 3) resume-first
+# Resume-first
 curl -sS -H "Authorization: Bearer $TOKEN" "$BASE_URL/api/v1/runs/current"
 ```
 
-## Maintenance Requirement (Must Follow)
+## Maintenance
 
-If user API or user-side gameplay changes, this `skill.md` must be updated in the same change set.
-
-At minimum, review and sync this file when changing:
-
-- `app/api/v1/auth/*`
-- `app/api/v1/runs/*`
-- `lib/server/siwe.ts`
-- `lib/server/runs.ts`
-- `services/geminiService.ts`
-- `App.tsx`
-- `types.ts`
+Update this file in the same changeset whenever modifying:
+- `app/api/v1/auth/*` or `app/api/v1/runs/*`
+- `lib/server/siwe.ts`, `lib/server/runs.ts`
+- `services/geminiService.ts`, `App.tsx`, `types.ts`
