@@ -26,6 +26,7 @@ export async function POST(request: NextRequest) {
         role: user.role.toLowerCase(),
         tokenExp,
         isFirstHumanEntry: hasRuns === 0,
+        authProvider: user.authProvider.toLowerCase(),
       },
     });
   } catch (error: any) {

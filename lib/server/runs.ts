@@ -1,4 +1,4 @@
-import { GameRunStatus, RunActorType, UserRole } from '@prisma/client';
+import { AuthProvider, GameRunStatus, RunActorType, UserRole } from '@prisma/client';
 import { INITIAL_STATE } from '../../constants';
 import { ActorType, Choice, GameState, GeminiResponse } from '../../types';
 import { generateNextTurnServer } from './aiEngine';
@@ -252,7 +252,7 @@ const toRunSummary = (run: {
 });
 
 export const startOrGetActiveRun = async (
-  authUser: { id: string; walletAddress: string },
+  authUser: { id: string; walletAddress: string; authProvider: AuthProvider },
   actorTypeInput: ActorType,
   options?: {
     storyId?: string | null;
@@ -283,6 +283,15 @@ export const startOrGetActiveRun = async (
       state,
       recovered: true,
     };
+  }
+
+  if (authUser.authProvider === AuthProvider.GUEST) {
+    const priorRuns = await db.gameRun.count({
+      where: { userId: authUser.id },
+    });
+    if (priorRuns > 0) {
+      throw new HttpError(403, 'guest_trial_consumed');
+    }
   }
 
   const selectedStory = await resolveStoryForRunStart(options?.storyId || null);

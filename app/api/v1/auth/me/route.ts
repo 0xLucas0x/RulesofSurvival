@@ -17,6 +17,7 @@ export async function GET(request: NextRequest) {
         role: user.role.toLowerCase(),
         tokenExp: user.tokenExp,
         isFirstHumanEntry: hasRuns === 0,
+        authProvider: user.authProvider.toLowerCase(),
       },
     });
   } catch (error: any) {

@@ -10,7 +10,9 @@
     "test:game:nvidia": "node scripts/test-gameplay-nvidia.mjs",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
-    "prisma:deploy": "prisma migrate deploy"
+    "prisma:deploy": "prisma migrate deploy",
+    "tunnel": "cloudflared tunnel --url http://localhost:3000",
+    "tunnel:npx": "npx cloudflared tunnel --url http://localhost:3000"
   },
   "dependencies": {
     "@dynamic-labs/ethereum": "^4.61.3",

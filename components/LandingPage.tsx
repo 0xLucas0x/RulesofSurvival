@@ -1,10 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
+import Link from 'next/link';
 import type { LandingStats } from '../types';
 
 interface LandingPageProps {
     onHumanEnter: () => void;
     isHumanEntering?: boolean;
+    onGuestEnter?: () => void;
     onAgentEnter: () => void;
     onBoardEnter?: () => void;
     currentLanguage?: string;
@@ -15,6 +17,7 @@ interface LandingPageProps {
 export const LandingPage: React.FC<LandingPageProps> = ({
     onHumanEnter,
     isHumanEntering = false,
+    onGuestEnter,
     onAgentEnter,
     onBoardEnter,
     currentLanguage = 'en',
@@ -24,7 +27,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
     const { t } = useTranslation();
     const [hoveredSection, setHoveredSection] = useState<'human' | 'agent' | null>(null);
     const [currentTime, setCurrentTime] = useState('');
-    const [skillCommand, setSkillCommand] = useState('curl -s /skill.md');
+    const [skillUrl, setSkillUrl] = useState('/skill.md');
 
     useEffect(() => {
         const timer = setInterval(() => {
@@ -38,8 +41,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
         if (typeof window === 'undefined') {
             return;
         }
-        const skillUrl = `${window.location.origin}/skill.md`;
-        setSkillCommand(`curl -s ${skillUrl}`);
+        setSkillUrl(`${window.location.origin}/skill.md`);
     }, []);
 
     return (
@@ -118,7 +120,9 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                             {t('landing.live_board')}
                         </button>
                     )}
-                    <span className="hidden md:inline hover:text-red-500 cursor-pointer transition-colors">{t('landing.database')}</span>
+                    <Link href="/leaderboard" className="hidden md:inline hover:text-red-500 cursor-pointer transition-colors border-b border-transparent hover:border-red-500 pb-0.5">
+                        {t('landing.top_agents')}
+                    </Link>
                     <span className="hidden md:inline hover:text-red-500 cursor-pointer transition-colors">{t('landing.personnel')}</span>
                     <span className="hidden md:inline text-red-500 animate-pulse">{t('landing.monitoring')}</span>
 
@@ -258,22 +262,18 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                                     {t('landing.agent_desc')}
                                 </p>
 
-                                {/* Command Block */}
-                                <div className="mt-4 bg-black/60 border border-teal-500/30 rounded p-3 relative group/code font-mono text-[10px] overflow-hidden">
-                                    <div className="flex justify-between items-center text-teal-500/50 mb-1">
-                                        <span>TERMINAL_ACCESS</span>
-                                        <span>BASH</span>
-                                    </div>
+                                {/* Instruction Block */}
+                                <div className="mt-4 bg-black/60 border border-teal-500/30 rounded p-3 relative group/code font-mono text-xs overflow-hidden">
                                     <code className="block text-teal-300 break-all pr-6">
-                                        {skillCommand}
+                                        {t('landing.agent_skill_instruction', { url: skillUrl })}
                                     </code>
                                     <button
                                         className="absolute bottom-0.5 right-2 p-1 hover:bg-teal-500/20 rounded text-teal-500 transition-colors z-20"
                                         onClick={(e) => {
                                             e.stopPropagation();
-                                            navigator.clipboard.writeText(skillCommand);
+                                            navigator.clipboard.writeText(t('landing.agent_skill_instruction', { url: skillUrl }));
                                         }}
-                                        title="Copy Command"
+                                        title="Copy URL"
                                     >
                                         <span className="material-symbols-outlined text-sm">content_copy</span>
                                     </button>
@@ -287,6 +287,18 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                         </div>
                     </div>
                 </div>
+
+                {onGuestEnter && (
+                    <div className="mt-6 w-full max-w-4xl px-4">
+                        <button
+                            onClick={onGuestEnter}
+                            className="w-full md:w-auto px-5 py-3 border border-amber-500/50 bg-amber-900/20 hover:bg-amber-900/40 text-amber-200 font-sc tracking-widest uppercase transition-colors flex items-center justify-center gap-2"
+                        >
+                            <span className="material-symbols-outlined text-[18px]">confirmation_number</span>
+                            {t('landing.guest_trial')}
+                        </button>
+                    </div>
+                )}
 
                 {/* Footer Stats */}
                 <div className="mt-16 grid grid-cols-2 md:grid-cols-4 gap-4 w-full max-w-4xl px-4 text-[10px] font-mono text-gray-500">

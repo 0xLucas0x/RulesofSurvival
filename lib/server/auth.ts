@@ -1,5 +1,5 @@
 import crypto from 'crypto';
-import { UserRole, UserStatus } from '@prisma/client';
+import { AuthProvider, UserRole, UserStatus } from '@prisma/client';
 import { JWTPayload, SignJWT, jwtVerify } from 'jose';
 import { NextRequest } from 'next/server';
 import { JWT_TTL_SECONDS, getJwtSecret } from './appConfig';
@@ -10,6 +10,7 @@ export type AuthUser = {
   id: string;
   walletAddress: string;
   role: UserRole;
+  authProvider: AuthProvider;
   tokenExp: number;
   jti: string;
 };
@@ -65,6 +66,7 @@ export const getAuthUserFromToken = async (token: string): Promise<AuthUser | nu
     id: user.id,
     walletAddress: user.walletAddress,
     role: user.role,
+    authProvider: user.authProvider,
     tokenExp: exp,
     jti,
   };

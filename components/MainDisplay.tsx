@@ -196,8 +196,8 @@ export const MainDisplay: React.FC<MainDisplayProps> = ({
   useEffect(() => {
     let active = true;
     const fetchImage = async () => {
-      // Skip image generation if disabled
-      if (!enableImageGen) {
+      // Skip image generation if disabled or prompt is not yet available
+      if (!enableImageGen || !imagePrompt) {
         setImageUrl(null);
         return;
       }
@@ -456,7 +456,7 @@ export const MainDisplay: React.FC<MainDisplayProps> = ({
 
         {/* Control Panel (Integrated HUD Style) */}
         <div className={`w-full grid ${gridClasses} gap-4 shrink-0 pb-2`}>
-          {choices.map((choice) => {
+          {!isGameOver && choices.map((choice) => {
             const isRisky = choice.actionType === 'risky';
             const choiceBorderColor = isRisky ? 'border-red-500/50' : 'border-white/20';
             const choiceHoverBorder = isRisky ? 'group-hover:border-red-500' : 'group-hover:border-white';

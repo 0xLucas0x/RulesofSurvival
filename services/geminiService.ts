@@ -70,6 +70,7 @@ const normalizeAuthUser = (input: any): AuthUser => {
     id: String(input?.id || ''),
     walletAddress: String(input?.walletAddress || ''),
     role: input?.role === 'admin' ? 'admin' : 'player',
+    authProvider: input?.authProvider === 'guest' ? 'guest' : 'wallet',
     tokenExp: typeof input?.tokenExp === 'number' ? input.tokenExp : Math.floor(Date.now() / 1000),
     isFirstHumanEntry: Boolean(input?.isFirstHumanEntry),
   };
@@ -340,6 +341,15 @@ export const verifySiweLogin = async (message: string, signature: string): Promi
   const data = await postJson<{ token: string; user: AuthUser }>('/api/v1/auth/verify', { message, signature });
   if (!data?.token) {
     throw new Error('Missing auth token in login response');
+  }
+  writeAuthToken(data.token);
+  return normalizeAuthUser(data.user);
+};
+
+export const redeemGuestInvite = async (inviteCode: string): Promise<AuthUser> => {
+  const data = await postJson<{ token: string; user: AuthUser }>('/api/v1/auth/guest/redeem', { inviteCode });
+  if (!data?.token) {
+    throw new Error('Missing auth token in guest login response');
   }
   writeAuthToken(data.token);
   return normalizeAuthUser(data.user);

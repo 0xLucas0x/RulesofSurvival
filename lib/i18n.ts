@@ -20,7 +20,8 @@ export const resources = {
                 human_link: "Survivor Link // HUMAN_LINK",
                 init_seq: "Init Sequence",
                 agent_mode: "Silicon Survivor",
-                agent_desc: "For silicon-based intelligences. Run the command below to access the neural network and deploy automated agents.",
+                agent_desc: "For silicon-based intelligences. Deploy automated agents to explore the scenario.",
+                agent_skill_instruction: "Read {{url}} and follow the instructions to join the game",
                 agent_api: "Synthetic Interface // AGENT_API",
                 console_access: "Access Console",
                 area_status: "Area Status",
@@ -33,7 +34,9 @@ export const resources = {
                 no_logs: "No Logs",
                 enter: "Enter · Scenario",
                 gameTitle: "Rule of Survival",
-                scenarioTitle: "Chongshan Hospital"
+                scenarioTitle: "Chongshan Hospital",
+                top_agents: "Top Agents",
+                guest_trial: "Guest Trial (Invite Code)"
             },
             intro: {
                 system_boot: "SYSTEM_BOOT_SEQUENCE...",
@@ -142,12 +145,29 @@ export const resources = {
                 back: "Back",
                 session_lost: "Session lost. Return to landing.",
                 admin_only: "Agent mode is admin-only.",
+                guest_entry: "Guest Trial Access",
+                invite_hint: "Enter a one-time invite code to start your guest run.",
+                invite_code: "Invite Code",
+                invite_code_placeholder: "XXXX-XXXX-XXXX",
+                redeeming_invite: "Redeeming...",
+                redeem_invite: "Start Guest Trial",
+                trial_completed_title: "Guest Trial Completed",
+                trial_completed_desc: "This guest identity has already finished its single trial run.",
+                end_trial: "End Session",
                 errors: {
                     no_wallet_address: "Connected wallet has no address.",
                     signature_cancelled: "Wallet signature was cancelled.",
                     login_failed: "Wallet login failed.",
                     dynamic_not_configured: "Dynamic environment is not configured.",
-                    provider_loading: "Wallet provider is still loading. Please retry."
+                    provider_loading: "Wallet provider is still loading. Please retry.",
+                    invite_code_required: "Invite code is required.",
+                    invite_code_invalid: "Invite code format is invalid.",
+                    invite_code_not_found: "Invite code not found.",
+                    invite_code_used: "This invite code has already been used.",
+                    invite_code_expired: "This invite code has expired.",
+                    invite_code_revoked: "This invite code is no longer active.",
+                    guest_redeem_failed: "Failed to redeem invite code.",
+                    rate_limited: "Too many attempts. Please try again later."
                 }
             },
             rulebook: {
@@ -200,6 +220,29 @@ export const resources = {
                 current_action: "Current Action",
                 event_log: "EVENT LOG",
                 no_events: "No events yet, waiting for new run updates..."
+            },
+            leaderboard: {
+                title: "GLOBAL RANKINGS",
+                back: "Return to Main Menu",
+                rank: "Rank",
+                agent_id: "Agent ID",
+                score: "Composite Score",
+                victories: "Victories",
+                runs: "Completed Runs",
+                active_days: "Active Days",
+                avg_turns: "Avg. Turns",
+                board_composite: "Composite",
+                board_clear: "Clears",
+                board_active: "Activity",
+                window_all: "All-Time",
+                window_7d: "Last 7 Days",
+                actor_all: "All Records",
+                actor_human: "Human",
+                actor_agent: "AI Agent",
+                loading: "Loading Agent Records...",
+                error: "Failed to load database.",
+                no_data: "No records found.",
+                unknown_agent: "Unknown"
             }
         }
     },
@@ -221,7 +264,8 @@ export const resources = {
                 human_link: "幸存者链接 // HUMAN_LINK",
                 init_seq: "初始化序列",
                 agent_mode: "硅基幸存者",
-                agent_desc: "适用于硅基智能体。运行下方指令接入神经网络，部署自动化代理进行探索。",
+                agent_desc: "适用于硅基智能体。部署自动化代理接入神经网络进行探索。",
+                agent_skill_instruction: "阅读 {{url}} 并按照指引加入游戏",
                 agent_api: "合成智能接口 // AGENT_API",
                 console_access: "点击进入控制台",
                 area_status: "区域状态",
@@ -234,7 +278,9 @@ export const resources = {
                 no_logs: "无日志记录",
                 enter: "进入 · 副本",
                 gameTitle: "生存规则",
-                scenarioTitle: "崇山医院"
+                scenarioTitle: "崇山医院",
+                top_agents: "精英干员",
+                guest_trial: "游客试玩（邀请码）"
             },
             intro: {
                 system_boot: "SYSTEM_BOOT_SEQUENCE...",
@@ -343,12 +389,29 @@ export const resources = {
                 back: "返回",
                 session_lost: "会话已失效，请返回落地页。",
                 admin_only: "Agent 模式仅管理员可用。",
+                guest_entry: "游客试玩入口",
+                invite_hint: "输入一次性邀请码即可开始游客试玩。",
+                invite_code: "邀请码",
+                invite_code_placeholder: "XXXX-XXXX-XXXX",
+                redeeming_invite: "兑换中...",
+                redeem_invite: "开始试玩",
+                trial_completed_title: "试玩资格已用完",
+                trial_completed_desc: "该游客身份已完成唯一一次试玩，无法再开启新局。",
+                end_trial: "结束会话",
                 errors: {
                     no_wallet_address: "已连接钱包缺少地址信息。",
                     signature_cancelled: "你已取消钱包签名。",
                     login_failed: "钱包登录失败。",
                     dynamic_not_configured: "尚未配置 Dynamic 环境。",
-                    provider_loading: "钱包连接器仍在加载，请稍后重试。"
+                    provider_loading: "钱包连接器仍在加载，请稍后重试。",
+                    invite_code_required: "请输入邀请码。",
+                    invite_code_invalid: "邀请码格式不正确。",
+                    invite_code_not_found: "邀请码不存在。",
+                    invite_code_used: "该邀请码已被使用。",
+                    invite_code_expired: "该邀请码已过期。",
+                    invite_code_revoked: "该邀请码已失效。",
+                    guest_redeem_failed: "邀请码兑换失败。",
+                    rate_limited: "请求过于频繁，请稍后重试。"
                 }
             },
             rulebook: {
@@ -401,6 +464,29 @@ export const resources = {
                 current_action: "当前动态",
                 event_log: "事件流",
                 no_events: "暂无事件，等待新的探索动态..."
+            },
+            leaderboard: {
+                title: "全球机密榜单",
+                back: "返回主系统",
+                rank: "排名",
+                agent_id: "干员编号",
+                score: "综合评分",
+                victories: "成功通关",
+                runs: "执行次数",
+                active_days: "活跃天数",
+                avg_turns: "平均回合",
+                board_composite: "综合榜",
+                board_clear: "通关榜",
+                board_active: "活跃榜",
+                window_all: "历史总榜",
+                window_7d: "最近7天",
+                actor_all: "所有记录",
+                actor_human: "人类玩家",
+                actor_agent: "AI代理",
+                loading: "读取特工档案中...",
+                error: "资料库连接失败。",
+                no_data: "未找到相关记录。",
+                unknown_agent: "未知干员"
             }
         }
     }

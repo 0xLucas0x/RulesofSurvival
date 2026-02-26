@@ -175,15 +175,22 @@ export const getLandingStats = async () => {
 export const getLeaderboard = async (
   board: 'composite' | 'clear' | 'active',
   window: '7d' | 'all',
+  actorType: 'HUMAN' | 'AGENT' | 'ALL' = 'ALL',
   limit = 50,
 ) => {
+  const windowBoundary = window === '7d' ? addDays(startOfDay(new Date()), -6) : null;
+  const actorFilter = actorType === 'ALL' ? {} : { actorType };
+  const timeFilter = windowBoundary ? { completedAt: { gte: windowBoundary } } : {};
+
   if (board === 'clear') {
-    const since = window === '7d' ? addDays(startOfDay(new Date()), -6) : null;
     const rows = await db.runResult.groupBy({
       by: ['userId'],
       where: {
         isVictory: true,
-        ...(since ? { completedAt: { gte: since } } : {}),
+        ...timeFilter,
+        run: {
+          ...actorFilter
+        }
       },
       _count: { _all: true },
       _avg: { turns: true },
@@ -207,44 +214,75 @@ export const getLeaderboard = async (
     }));
   }
 
-  const orderBy =
-    board === 'active'
-      ? [{ activeDays: 'desc' as const }, { completedRuns: 'desc' as const }]
-      : [{ compositeScore: 'desc' as const }, { victories: 'desc' as const }];
+  // Active & Composite fallback to dynamic aggregation of ALL RunResults matching filters
+  const timeFilterRun = windowBoundary ? { startedAt: { gte: windowBoundary } } : {};
 
-  const rows =
-    window === '7d'
-      ? await db.userMetrics7d.findMany({
-          orderBy,
-          take: limit,
-          include: {
-            user: {
-              select: {
-                walletAddress: true,
-              },
-            },
-          },
-        })
-      : await db.userMetricsAllTime.findMany({
-          orderBy,
-          take: limit,
-          include: {
-            user: {
-              select: {
-                walletAddress: true,
-              },
-            },
-          },
-        });
+  // To avoid complex Prisma raw queries for the grouping, we fetch the relevant rows 
+  // and aggregate in memory. For 50 rows on top it's fast enough.
+  const rawResults = await db.runResult.findMany({
+    where: {
+      ...timeFilter,
+      run: {
+        ...actorFilter
+      }
+    },
+    select: {
+      userId: true,
+      score: true,
+      isVictory: true,
+      completedAt: true,
+      user: {
+        select: {
+          walletAddress: true
+        }
+      }
+    }
+  });
 
-  return rows.map((row, idx) => ({
+  // Since activeDays uses uniqDayCount across the results, group in-memory
+  const userMap = new Map<string, { userId: string, walletAddress: string, compositeScore: number, victories: number, completedRuns: number, activeDates: Set<string> }>();
+
+  for (const r of rawResults) {
+    const dayStr = r.completedAt.toISOString().slice(0, 10);
+    let entry = userMap.get(r.userId);
+    if (!entry) {
+      entry = {
+        userId: r.userId,
+        walletAddress: r.user.walletAddress || 'unknown',
+        compositeScore: 0,
+        victories: 0,
+        completedRuns: 0,
+        activeDates: new Set<string>()
+      };
+      userMap.set(r.userId, entry);
+    }
+    entry.compositeScore += r.score;
+    entry.completedRuns += 1;
+    if (r.isVictory) entry.victories += 1;
+    entry.activeDates.add(dayStr);
+  }
+
+  const aggregated = Array.from(userMap.values()).map(e => ({
+    userId: e.userId,
+    walletAddress: e.walletAddress,
+    walletMasked: obfuscateWallet(e.walletAddress),
+    compositeScore: e.compositeScore,
+    victories: e.victories,
+    completedRuns: e.completedRuns,
+    activeDays: e.activeDates.size
+  }));
+
+  if (board === 'active') {
+    aggregated.sort((a, b) => b.activeDays === a.activeDays ? b.completedRuns - a.completedRuns : b.activeDays - a.activeDays);
+  } else {
+    aggregated.sort((a, b) => b.compositeScore === a.compositeScore ? b.victories - a.victories : b.compositeScore - a.compositeScore);
+  }
+
+  // take limit
+  const topRows = aggregated.slice(0, limit);
+
+  return topRows.map((row, idx) => ({
     rank: idx + 1,
-    userId: row.userId,
-    walletAddress: row.user.walletAddress,
-    walletMasked: obfuscateWallet(row.user.walletAddress),
-    compositeScore: row.compositeScore,
-    victories: row.victories,
-    completedRuns: row.completedRuns,
-    activeDays: row.activeDays,
+    ...row
   }));
 };
