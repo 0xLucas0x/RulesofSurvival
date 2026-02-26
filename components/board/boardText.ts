@@ -1,12 +1,10 @@
 import type { ActorType, BoardEvent, BoardEventType, BoardRunSnapshot } from '../../types';
+import i18n from '../../lib/i18n';
 
 export type BoardLang = 'zh' | 'en';
 
 const actorLabel = (actorType: ActorType, lang: BoardLang): string => {
-  if (lang === 'zh') {
-    return actorType === 'agent' ? '智能体' : '人类';
-  }
-  return actorType === 'agent' ? 'AGENT' : 'HUMAN';
+  return actorType === 'agent' ? i18n.t('board.agent', { lng: lang }) : i18n.t('board.human', { lng: lang });
 };
 
 const eventSubject = (actorType: ActorType, walletMasked: string, lang: BoardLang): string => {
@@ -14,7 +12,7 @@ const eventSubject = (actorType: ActorType, walletMasked: string, lang: BoardLan
 };
 
 export const fallbackSignalText = (lang: BoardLang): string => {
-  return lang === 'zh' ? '暂无信号载荷' : 'NO SIGNAL PAYLOAD';
+  return i18n.t('board.no_signal', { lng: lang });
 };
 
 export const formatBoardClock = (iso: string, lang: BoardLang): string => {
@@ -31,42 +29,24 @@ export const formatBoardEventMessage = (
   },
   lang: BoardLang,
 ): string => {
+  const t = i18n.getFixedT(lang);
   const subject = eventSubject(event.actorType, event.walletMasked, lang);
-
-  if (lang === 'en') {
-    switch (event.type) {
-      case 'run_started':
-        return `${subject} entered the run and started exploring.`;
-      case 'turn_milestone':
-        return `${subject} survived to Day ${event.dayNo} (Turn ${event.turnNo}).`;
-      case 'item_acquired':
-        return `${subject} acquired key item: ${event.itemName || 'Unknown Item'}.`;
-      case 'sanity_critical':
-        return `${subject} sanity dropped to ${event.sanity}% (critical).`;
-      case 'victory':
-        return `${subject} cleared the run.`;
-      case 'death':
-        return `${subject} died on Turn ${event.turnNo}.`;
-      default:
-        return `${subject} status updated.`;
-    }
-  }
 
   switch (event.type) {
     case 'run_started':
-      return `${subject} 进入副本，开始探索。`;
+      return t('board.run_started', { subject });
     case 'turn_milestone':
-      return `${subject} 生存至第 ${event.dayNo} 天（第 ${event.turnNo} 回合）。`;
+      return t('board.turn_milestone', { subject, dayNo: event.dayNo, turnNo: event.turnNo });
     case 'item_acquired':
-      return `${subject} 获得关键道具：${event.itemName || '未知道具'}。`;
+      return t('board.item_acquired', { subject, itemName: event.itemName || t('board.unknown') });
     case 'sanity_critical':
-      return `${subject} 理智降至 ${event.sanity}%（临界）。`;
+      return t('board.sanity_critical', { subject, sanity: event.sanity });
     case 'victory':
-      return `${subject} 成功通关。`;
+      return t('board.victory', { subject });
     case 'death':
-      return `${subject} 已死亡（第 ${event.turnNo} 回合）。`;
+      return t('board.death', { subject, turnNo: event.turnNo });
     default:
-      return `${subject} 状态更新。`;
+      return t('board.status_updated', { subject });
   }
 };
 
@@ -90,39 +70,21 @@ export const formatRunLastEventText = (run: BoardRunSnapshot, lang: BoardLang): 
 };
 
 export const eventTypeLabel = (type: BoardEventType, lang: BoardLang): string => {
-  if (lang === 'en') {
-    switch (type) {
-      case 'run_started':
-        return 'START';
-      case 'turn_milestone':
-        return 'MILESTONE';
-      case 'item_acquired':
-        return 'ITEM';
-      case 'victory':
-        return 'VICTORY';
-      case 'death':
-        return 'DEATH';
-      case 'sanity_critical':
-        return 'SANITY';
-      default:
-        return 'EVENT';
-    }
-  }
-
+  const t = i18n.getFixedT(lang);
   switch (type) {
     case 'run_started':
-      return '开局';
+      return t('board.event_start');
     case 'turn_milestone':
-      return '里程碑';
+      return t('board.event_milestone');
     case 'item_acquired':
-      return '道具';
+      return t('board.event_item');
     case 'victory':
-      return '通关';
+      return t('board.event_victory');
     case 'death':
-      return '死亡';
+      return t('board.event_death');
     case 'sanity_critical':
-      return '理智预警';
+      return t('board.event_sanity');
     default:
-      return '事件';
+      return t('board.event_generic');
   }
 };

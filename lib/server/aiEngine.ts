@@ -64,13 +64,51 @@ type OpenAIChatMessage = {
   content: string;
 };
 
-const TURN_JSON_MAX_ATTEMPTS = 2;
+const resolveTurnJsonMaxAttempts = (): number => {
+  const raw = Number.parseInt(process.env.TURN_JSON_MAX_ATTEMPTS || '', 10);
+  if (!Number.isFinite(raw)) {
+    return 2;
+  }
+  return Math.max(1, Math.min(8, raw));
+};
+
+const TURN_JSON_MAX_ATTEMPTS = resolveTurnJsonMaxAttempts();
+const OPENAI_RETRY_BASE_DELAY_MS = 800;
+const OPENAI_RETRY_MAX_DELAY_MS = 8000;
 
 const previewText = (text: string, maxLength = 360): string => {
   if (text.length <= maxLength) {
     return text;
   }
   return `${text.slice(0, maxLength)}...`;
+};
+
+const sleepMs = async (ms: number): Promise<void> =>
+  new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+
+const isTransientOpenAIError = (message: string): boolean => {
+  const normalized = message.toLowerCase();
+  return (
+    normalized.includes('fetch failed') ||
+    normalized.includes('network') ||
+    normalized.includes('socket hang up') ||
+    normalized.includes('econnreset') ||
+    normalized.includes('etimedout') ||
+    normalized.includes('openai api error: 429') ||
+    normalized.includes('openai api error: 500') ||
+    normalized.includes('openai api error: 502') ||
+    normalized.includes('openai api error: 503') ||
+    normalized.includes('openai api error: 504') ||
+    normalized.includes('unknown provider for model')
+  );
+};
+
+const computeOpenAIRetryDelayMs = (attempt: number): number => {
+  const exponential = Math.min(OPENAI_RETRY_MAX_DELAY_MS, OPENAI_RETRY_BASE_DELAY_MS * 2 ** Math.max(0, attempt - 1));
+  const jitter = Math.floor(Math.random() * 250);
+  return exponential + jitter;
 };
 
 const buildTurnJsonRepairPrompt = (rawText: string, outputLocale: string): string => {
@@ -290,6 +328,7 @@ type DifficultyDirectorInput = {
   directorState: DifficultyDirectorState;
   turnNumber: number;
   maxTurns: number;
+  gameConfig: GameConfig;
   isOvertime: boolean;
   currentRules: string[];
   inventory: Evidence[];
@@ -302,7 +341,7 @@ type DifficultyDirectorInput = {
 
 const ACTION_TYPES: ActionType[] = ['move', 'investigate', 'item', 'risky'];
 const VERIFY_KEYWORDS = ['验证', '核对', '比对', '复查', '对照', '校验', '确认规则', '排查'];
-const EXIT_KEYWORDS = ['天台', '屋顶', '出口', '逃离', '离开', '撤离', '逃生门', '安全通道'];
+const EXIT_KEYWORDS = ['天台', '屋顶', '出口', '逃生门', '安全通道', '检修通道', '离开医院', '撤离医院', '冲出医院'];
 const RITUAL_KEYWORDS = ['封印', '仪式', '裂缝', '下潜', '地下二层', '锚点', '阵列', '关闭', '重置'];
 const ENDING_ACTION_KEYWORDS = [...EXIT_KEYWORDS, ...RITUAL_KEYWORDS, '最终', '决断', '了结'];
 const DEEP_ZONE_KEYWORDS = ['东楼', '地下', '档案', '封锁', '禁闭', '裂缝', '封印室', '地下二层'];
@@ -523,6 +562,56 @@ const buildVerificationChoice = (): Choice => {
   };
 };
 
+const buildVerificationItemChoice = (): Choice => {
+  return {
+    id: 'verify_item',
+    text: '整理携带物证并交叉比对冲突条目，再决定下一步推进顺序',
+    actionType: 'item',
+  };
+};
+
+const hasRescueAction = (text: string): boolean => {
+  return textIncludesAny(text || '', CHONGSHAN_RESCUE_ACTION_KEYWORDS);
+};
+
+const hasRescueActionInHistory = (state: DifficultyDirectorState): boolean => {
+  return state.actionRecords.some((record) => hasRescueAction(record.text));
+};
+
+const buildChongshanRescueChoices = (reasonCode: ChongshanFallReasonCode): Choice[] => {
+  if (reasonCode === 'fall_rule_chain_break') {
+    return [
+      { id: 'rescue_chain_1', text: '【补救链】立即回到核验点，补做“规则-物证-位置”三联校验。', actionType: 'investigate' },
+      { id: 'rescue_chain_2', text: '【补救链】用现有关键物证重新签注封印流程，再执行终结动作。', actionType: 'item' },
+      { id: 'rescue_chain_3', text: '短距后撤至安全位，先压低威胁再二次推进。', actionType: 'move' },
+    ];
+  }
+  return [
+    { id: 'rescue_conflict_1', text: '【补救冲突】停止高危操作，先核对冲突规则并撤销刚触发的禁忌步骤。', actionType: 'investigate' },
+    { id: 'rescue_conflict_2', text: '【补救冲突】提交当前证据给校验节点，重建合法执行链。', actionType: 'item' },
+    { id: 'rescue_conflict_3', text: '快速脱离冲突区，绕行至东楼地下段重新对位。', actionType: 'move' },
+  ];
+};
+
+const hasDeepZoneChoice = (choices: Choice[]): boolean => {
+  return choices.some((choice) => textIncludesAny(choice.text, DEEP_ZONE_KEYWORDS));
+};
+
+const buildDeepZoneChoice = (deepZoneProgress: number): Choice => {
+  if (deepZoneProgress <= 1) {
+    return {
+      id: 'deep_zone_push',
+      text: '立即转入东楼地下段，定位地下二层入口并建立封印坐标。',
+      actionType: 'move',
+    };
+  }
+  return {
+    id: 'deep_zone_push',
+    text: '继续下潜至地下二层核心区，完成裂缝锚点与封印位的最终确认。',
+    actionType: 'investigate',
+  };
+};
+
 const buildEndgameChoices = (params: {
   storyTitle?: string | null;
   storySlug?: string | null;
@@ -586,10 +675,65 @@ type EndingGateProfile = {
 
 type ChongshanRoute = 'seal' | 'verify' | 'escape' | 'unknown';
 type ChongshanEndingTier = 'perfect' | 'normal' | 'pass' | 'fall' | null;
+type ChongshanFallReasonCode =
+  | 'fall_sanity_depleted'
+  | 'fall_deadline_exhausted'
+  | 'fall_rule_chain_break'
+  | 'fall_unstable_seal'
+  | 'fall_rule_conflict'
+  | 'fall_route_incomplete';
+type ChongshanFallReasonContext = {
+  directorState: DifficultyDirectorState;
+  route: ChongshanRoute;
+  currentAction: string;
+  projectedSanity: number;
+  turnNumber: number;
+  hardEndingTurn: number;
+  hasEndingIntent: boolean;
+  isModelEnding: boolean;
+};
 
 const CHONGSHAN_SEAL_ROUTE_KEYWORDS = ['下潜', '裂缝', '封印', '核心', '祭坛', '地下二层', '重置'];
 const CHONGSHAN_VERIFY_ROUTE_KEYWORDS = ['赵医生', '核验', '核对', '交叉验证', '执行结果', '比对'];
-const CHONGSHAN_ESCAPE_ROUTE_KEYWORDS = ['屋顶', '出口', '撤离', '逃离', '离开医院', '离开'];
+const CHONGSHAN_ESCAPE_ROUTE_KEYWORDS = ['屋顶', '出口', '离开医院', '撤离医院', '冲出医院', '检修通道', '安全通道', '外部'];
+const CHONGSHAN_ESCAPE_BOUNDARY_KEYWORDS = ['医院', '院区', '出口', '大门', '屋顶', '封锁', '检修通道', '安全通道', '外部'];
+const CHONGSHAN_EARLY_FATAL_NARRATIVE_KEYWORDS = [
+  '当场死亡',
+  '瞬间死亡',
+  '立即死亡',
+  '被裂缝吞没',
+  '被拖入裂缝',
+  '意识被抹除',
+  '不可逆',
+  '无可逆',
+  '高危规则冲突',
+  '终局原因',
+];
+const CHONGSHAN_EARLY_FATAL_ACTION_KEYWORDS = [
+  '回头',
+  '直视',
+  '摘下口罩',
+  '进入东楼',
+  '触碰裂缝',
+  '撕毁守则',
+  '靠近红衣',
+  '跟随红衣',
+  '拒绝核验',
+];
+const CHONGSHAN_MIN_VICTORY_TURN = 10;
+const CHONGSHAN_PROGRESS_HINT_START_TURN = 8;
+const CHONGSHAN_PROGRESS_HINT_END_TURN = 10;
+const CHONGSHAN_DEEP_ZONE_PUSH_TURN = 8;
+const CHONGSHAN_RESCUE_WINDOW_TURNS = 1;
+const CHONGSHAN_RESCUE_ACTION_KEYWORDS = ['【补救链】', '【补救冲突】'];
+const CHONGSHAN_DEFEAT_REPLACEMENTS: Array<{ pattern: RegExp; replacement: string }> = [
+  { pattern: /你活下来了/g, replacement: '你一度以为自己活下来了' },
+  { pattern: /活了下来/g, replacement: '勉强维持了残存意识' },
+  { pattern: /你成功逃离了崇山医院/g, replacement: '你一度以为自己已经逃离崇山医院' },
+  { pattern: /你成功逃离/g, replacement: '你一度以为自己成功逃离' },
+  { pattern: /你成功地跨过/g, replacement: '你以为自己跨过了' },
+  { pattern: /你推开沉重的铁门，清晨阴冷的空气扑面而来。?/g, replacement: '你推开铁门时感受到的“清晨空气”，更像封印诱导出的错觉。' },
+];
 
 const getEndingGateProfile = (
   directorMode: 'default' | 'lab',
@@ -601,19 +745,19 @@ const getEndingGateProfile = (
 
   if (strict) {
     return {
-      truePlotItems: 4,
-      trueVerifyActions: 4,
-      trueRecentVerifyActions: 1,
+      truePlotItems: 5,
+      trueVerifyActions: 5,
+      trueRecentVerifyActions: 2,
       trueDeepZone: 3,
-      trueSealStability: 2,
-      trueThreatMax: 3,
-      escapePlotItems: 2,
-      escapeVerifyActions: 3,
+      trueSealStability: 3,
+      trueThreatMax: 2,
+      escapePlotItems: 3,
+      escapeVerifyActions: 4,
       escapeRecentVerifyActions: 1,
       escapeSealStability: 2,
-      escapeThreatMax: 3,
-      allowVictorySealFloor: 0,
-      targetVictoryRateHint: '10%-15%',
+      escapeThreatMax: 2,
+      allowVictorySealFloor: 1,
+      targetVictoryRateHint: '8%-12%',
     };
   }
 
@@ -647,6 +791,25 @@ const detectChongshanRoute = (actionText: string): ChongshanRoute => {
   return 'unknown';
 };
 
+const isChongshanEscapeFinisherAction = (actionText: string): boolean => {
+  const hasEscapeRouteKeyword = textIncludesAny(actionText, CHONGSHAN_ESCAPE_ROUTE_KEYWORDS);
+  const hasBoundaryKeyword = textIncludesAny(actionText, CHONGSHAN_ESCAPE_BOUNDARY_KEYWORDS);
+  return hasEscapeRouteKeyword || (hasBoundaryKeyword && textIncludesAny(actionText, ['逃离', '撤离', '离开', '冲出', '冲向']));
+};
+
+const shouldAllowChongshanPrematureFailure = (params: {
+  currentAction: string;
+  narrative: string;
+  directorState: DifficultyDirectorState;
+}): boolean => {
+  const { currentAction, narrative, directorState } = params;
+  const explicitFatalNarrative = textIncludesAny(narrative, CHONGSHAN_EARLY_FATAL_NARRATIVE_KEYWORDS);
+  const explicitFatalAction = textIncludesAny(currentAction, CHONGSHAN_EARLY_FATAL_ACTION_KEYWORDS);
+  const severeState = directorState.threatClock >= 4 || directorState.sealStability <= 0;
+  const earlyBlindRush = directorState.turnNumber <= 6 && directorState.strictVerificationActions < 2;
+  return explicitFatalNarrative || (explicitFatalAction && (severeState || earlyBlindRush));
+};
+
 const buildChongshanEndingHint = (tier: Exclude<ChongshanEndingTier, null>): string => {
   if (tier === 'perfect') {
     return '结局判定：完美结局「封印重启」——你完成了全部校验闭环，裂缝被稳定回卷。';
@@ -672,41 +835,306 @@ const resolveChongshanEndingTier = (params: {
   const { directorState, currentAction, turnNumber, projectedSanity, hardEndingTurn, hasEndingIntent, isModelEnding } = params;
 
   const route = detectChongshanRoute(currentAction);
+  const reachedVictoryFloor = turnNumber >= CHONGSHAN_MIN_VICTORY_TURN;
+  const reachedEndingWindow = turnNumber >= directorState.minEndingTurn;
+  const canAwardVictory = reachedVictoryFloor && reachedEndingWindow && hasEndingIntent;
   const meetsPerfect = route === 'seal'
     && directorState.plotItemCount >= 4
     && directorState.strictVerificationActions >= 5
+    && directorState.recentVerificationActions >= 2
     && directorState.deepZoneProgress >= 3
     && directorState.sealStability >= 2
-    && directorState.threatClock <= 3;
+    && directorState.threatClock <= 2;
   const meetsNormalSeal = route === 'seal'
-    && directorState.plotItemCount >= 2
-    && directorState.strictVerificationActions >= 3
+    && directorState.plotItemCount >= 3
+    && directorState.strictVerificationActions >= 4
+    && directorState.recentVerificationActions >= 1
     && directorState.deepZoneProgress >= 2
-    && directorState.sealStability >= 0
-    && directorState.threatClock <= 4;
+    && directorState.sealStability >= 1
+    && directorState.threatClock <= 3;
   const meetsNormalVerify = route === 'verify'
+    && directorState.plotItemCount >= 3
+    && directorState.strictVerificationActions >= 4
+    && directorState.recentVerificationActions >= 1
+    && directorState.deepZoneProgress >= 2
+    && directorState.sealStability >= 1
+    && directorState.threatClock <= 3;
+  const meetsPassEscape = route === 'escape'
+    && isChongshanEscapeFinisherAction(currentAction)
     && directorState.plotItemCount >= 2
     && directorState.strictVerificationActions >= 3
-    && directorState.deepZoneProgress >= 2
+    && directorState.recentVerificationActions >= 1
+    && directorState.deepZoneProgress >= 1
     && directorState.sealStability >= 0
-    && directorState.threatClock <= 4;
-  const meetsPassEscape = route === 'escape'
-    && directorState.strictVerificationActions >= 2
-    && directorState.sealStability >= -1
-    && directorState.threatClock <= 4;
+    && directorState.threatClock <= 3;
 
   const meetsAnyVictoryTier = meetsPerfect || meetsNormalSeal || meetsNormalVerify || meetsPassEscape;
-  if (meetsPerfect) return 'perfect';
-  if (meetsNormalSeal || meetsNormalVerify) return 'normal';
-  if (meetsPassEscape) return 'pass';
+  if (canAwardVictory && meetsPerfect) return 'perfect';
+  if (canAwardVictory && (meetsNormalSeal || meetsNormalVerify)) return 'normal';
+  if (canAwardVictory && meetsPassEscape) return 'pass';
 
-  const reachedEndingWindow = turnNumber >= directorState.minEndingTurn;
   const mustResolveNow = turnNumber >= hardEndingTurn || projectedSanity <= 0 || isModelEnding;
   if ((reachedEndingWindow && hasEndingIntent && !meetsAnyVictoryTier) || mustResolveNow) {
     return 'fall';
   }
 
   return null;
+};
+
+const buildChongshanGapLabels = (params: {
+  directorState: DifficultyDirectorState;
+  gate: EndingGateProfile;
+}): string[] => {
+  const { directorState, gate } = params;
+  const gaps: string[] = [];
+
+  const verifyGap = gate.trueVerifyActions - directorState.strictVerificationActions;
+  if (verifyGap > 0) {
+    gaps.push(`核验动作还差${verifyGap}次`);
+  }
+
+  const recentVerifyGap = gate.trueRecentVerifyActions - directorState.recentVerificationActions;
+  if (recentVerifyGap > 0) {
+    gaps.push(`近4回合核验至少补${recentVerifyGap}次`);
+  }
+
+  const plotItemGap = gate.truePlotItems - directorState.plotItemCount;
+  if (plotItemGap > 0) {
+    gaps.push(`关键物证还差${plotItemGap}件`);
+  }
+
+  const deepZoneGap = gate.trueDeepZone - directorState.deepZoneProgress;
+  if (deepZoneGap > 0) {
+    gaps.push(`深区推进还差${deepZoneGap}级`);
+  }
+
+  const sealGap = gate.trueSealStability - directorState.sealStability;
+  if (sealGap > 0) {
+    gaps.push(`封印稳定度至少再提升${sealGap}`);
+  }
+
+  const threatDrop = directorState.threatClock - gate.trueThreatMax;
+  if (threatDrop > 0) {
+    gaps.push(`威胁时钟需再压低${threatDrop}格`);
+  }
+
+  return gaps;
+};
+
+const buildChongshanProgressAdvisory = (params: {
+  directorState: DifficultyDirectorState;
+  gate: EndingGateProfile;
+}): string => {
+  const { directorState, gate } = params;
+  if (directorState.strictVerificationActions < gate.trueVerifyActions) {
+    return '优先补核验动作，完成“规则-物证-位置”交叉验证。';
+  }
+  if (directorState.deepZoneProgress < gate.trueDeepZone) {
+    return '优先推进东楼/地下二层，完成深区定位。';
+  }
+  if (directorState.plotItemCount < gate.truePlotItems) {
+    return '优先补齐关键物证，避免终章缺口。';
+  }
+  if (directorState.sealStability < gate.trueSealStability) {
+    return '优先做稳封步骤，先稳住封印再尝试终结。';
+  }
+  if (directorState.threatClock > gate.trueThreatMax) {
+    return '优先降低威胁时钟，再执行高风险动作。';
+  }
+  return '闭环条件接近完成，可尝试最终核验并收束结局。';
+};
+
+const buildChongshanClosureScore = (params: {
+  directorState: DifficultyDirectorState;
+  gate: EndingGateProfile;
+}): number => {
+  const { directorState, gate } = params;
+  const verifyScore = clamp(directorState.strictVerificationActions / Math.max(1, gate.trueVerifyActions), 0, 1);
+  const recentVerifyScore = clamp(directorState.recentVerificationActions / Math.max(1, gate.trueRecentVerifyActions), 0, 1);
+  const plotScore = clamp(directorState.plotItemCount / Math.max(1, gate.truePlotItems), 0, 1);
+  const deepScore = clamp(directorState.deepZoneProgress / Math.max(1, gate.trueDeepZone), 0, 1);
+  const sealScore = clamp((directorState.sealStability + 3) / (gate.trueSealStability + 3), 0, 1);
+  const threatScore = clamp(1 - (Math.max(0, directorState.threatClock - gate.trueThreatMax) / 6), 0, 1);
+  const weighted = (verifyScore * 0.28)
+    + (recentVerifyScore * 0.12)
+    + (plotScore * 0.2)
+    + (deepScore * 0.16)
+    + (sealScore * 0.14)
+    + (threatScore * 0.1);
+  return Math.round(weighted * 100);
+};
+
+const buildChongshanRiskLabel = (params: {
+  directorState: DifficultyDirectorState;
+  gate: EndingGateProfile;
+}): string => {
+  const { directorState, gate } = params;
+  if (directorState.sealStability <= 0 || directorState.threatClock >= 5) {
+    return '高';
+  }
+  if (
+    directorState.strictVerificationActions < gate.trueVerifyActions - 1
+    || directorState.deepZoneProgress < gate.trueDeepZone - 1
+    || directorState.threatClock >= 4
+  ) {
+    return '中';
+  }
+  return '低';
+};
+
+const buildChongshanProgressHint = (params: {
+  directorState: DifficultyDirectorState;
+  gate: EndingGateProfile;
+  turnNumber: number;
+  maxTurns: number;
+  isNearEndingWindow: boolean;
+}): string => {
+  const {
+    directorState,
+    gate,
+    turnNumber,
+    maxTurns,
+    isNearEndingWindow,
+  } = params;
+  const gaps = buildChongshanGapLabels({ directorState, gate });
+  const remainTurns = Math.max(0, maxTurns + ENDING_GRACE_TURNS - turnNumber);
+  const closureScore = buildChongshanClosureScore({ directorState, gate });
+  const riskLabel = buildChongshanRiskLabel({ directorState, gate });
+  const advisory = buildChongshanProgressAdvisory({ directorState, gate });
+  const summaryLine = `【阶段校验】核验:${directorState.strictVerificationActions}/${gate.trueVerifyActions} | 物证:${directorState.plotItemCount}/${gate.truePlotItems} | 深区:${directorState.deepZoneProgress}/${gate.trueDeepZone} | 封印稳定:${directorState.sealStability} | 威胁:${directorState.threatClock}/6`;
+  const panelLine = `【闭环面板】闭环分:${closureScore}/100 | 风险:${riskLabel} | 剩余窗口:${remainTurns}回合`;
+  const gapLine = gaps.length
+    ? `【缺失项】${gaps.join('；')}`
+    : '【缺失项】主闭环条件基本齐备，下一步优先执行最终核验并收束结局。';
+  const advisoryLine = `【下一步】${advisory}`;
+  const urgencyLine = isNearEndingWindow
+    ? `【终章提醒】剩余可逆窗口约${remainTurns}回合，请立即补齐缺口后再尝试终结动作。`
+    : `【节奏建议】当前回合数${turnNumber}/${maxTurns}，先补齐缺口再冲终章，成功率更高。`;
+  return `${summaryLine}\n${panelLine}\n${gapLine}\n${advisoryLine}\n${urgencyLine}`;
+};
+
+const inferChongshanFallReasonCode = (params: ChongshanFallReasonContext): ChongshanFallReasonCode => {
+  const {
+    directorState,
+    route,
+    currentAction,
+    projectedSanity,
+    turnNumber,
+    hardEndingTurn,
+    hasEndingIntent,
+    isModelEnding,
+  } = params;
+
+  if (projectedSanity <= 0) {
+    return 'fall_sanity_depleted';
+  }
+
+  if (turnNumber >= hardEndingTurn) {
+    return 'fall_deadline_exhausted';
+  }
+
+  const explicitConflictAction = textIncludesAny(currentAction, CHONGSHAN_EARLY_FATAL_ACTION_KEYWORDS);
+  if ((turnNumber < directorState.minEndingTurn && isModelEnding) || explicitConflictAction) {
+    return 'fall_rule_conflict';
+  }
+
+  if (hasEndingIntent && (directorState.strictVerificationActions < 3 || directorState.recentVerificationActions < 1)) {
+    return 'fall_rule_chain_break';
+  }
+
+  if (directorState.sealStability <= 0 || directorState.threatClock >= 4) {
+    return 'fall_unstable_seal';
+  }
+
+  if (isModelEnding) {
+    return 'fall_rule_conflict';
+  }
+
+  if (!hasEndingIntent || route === 'unknown') {
+    return 'fall_route_incomplete';
+  }
+
+  return 'fall_route_incomplete';
+};
+
+const buildChongshanFallEndingHint = (reasonCode: ChongshanFallReasonCode): string => {
+  if (reasonCode === 'fall_unstable_seal') {
+    return '结局判定：堕入结局「裂隙反涌」——封印阵列失稳，裂缝回涌吞没了你的撤离路径。';
+  }
+  if (reasonCode === 'fall_rule_chain_break') {
+    return '结局判定：堕入结局「断链收束」——你抵达终局节点，却因关键闭环缺口被强制判入失败线。';
+  }
+  if (reasonCode === 'fall_rule_conflict') {
+    return '结局判定：堕入结局「伪证闭环」——你用未核验规则强行收束流程，封印在最后一刻发生逆向反噬。';
+  }
+  return '结局判定：堕入结局「盲区回廊」——你在伪线索与迟滞行动中错过终章窗口，最终被医院重写为下一轮巡查样本。';
+};
+
+const buildChongshanFallCauseHint = (reasonCode: ChongshanFallReasonCode): string => {
+  if (reasonCode === 'fall_sanity_depleted') {
+    return '终局原因：理智值归零，污染在你完成闭环前先一步吞没了你。';
+  }
+  if (reasonCode === 'fall_deadline_exhausted') {
+    return '终局原因：终章窗口耗尽，你仍未补齐闭环步骤，失败线已被锁定。';
+  }
+  if (reasonCode === 'fall_rule_chain_break') {
+    return '终局原因：校验链断裂，关键核验步骤不足，导致终局判定直接滑向堕入线。';
+  }
+  if (reasonCode === 'fall_unstable_seal') {
+    return '终局原因：封印稳定度不足且威胁时钟过高，当前路线已无可逆窗口。';
+  }
+  if (reasonCode === 'fall_rule_conflict') {
+    return '终局原因：你触发了高危规则冲突，尽管理智尚存，结局仍被强制判死。';
+  }
+  return '终局原因：你的最终行动未形成有效路线，闭环条件不足，结局坠入失败线。';
+};
+
+const stripTerminalHints = (narrative: string): string => {
+  return (narrative || '')
+    .replace(/\n?<danger>\s*结局判定[:：][\s\S]*?<\/danger>/g, '')
+    .replace(/\n?<danger>\s*终局原因[:：][\s\S]*?<\/danger>/g, '')
+    .replace(/\n?结局判定[:：][^\n<]*/g, '')
+    .replace(/\n?终局原因[:：][^\n<]*/g, '')
+    .trim();
+};
+
+const sanitizeChongshanDefeatNarrative = (narrative: string): string => {
+  let next = narrative;
+  for (const { pattern, replacement } of CHONGSHAN_DEFEAT_REPLACEMENTS) {
+    next = next.replace(pattern, replacement);
+  }
+  return next;
+};
+
+const inferChongshanVictoryTierFromNarrative = (narrative: string): Exclude<ChongshanEndingTier, 'fall' | null> => {
+  if (narrative.includes('完美结局')) return 'perfect';
+  if (narrative.includes('及格结局')) return 'pass';
+  return 'normal';
+};
+
+const normalizeChongshanTerminalNarrative = (params: {
+  narrative: string;
+  isGameOver: boolean;
+  isVictory: boolean;
+  victoryTier?: Exclude<ChongshanEndingTier, 'fall' | null> | null;
+  fallReasonCode?: ChongshanFallReasonCode | null;
+}): string => {
+  const { isGameOver, isVictory } = params;
+
+  if (!isGameOver) {
+    return stripTerminalHints(params.narrative);
+  }
+
+  const base = stripTerminalHints(params.narrative);
+  if (isVictory) {
+    const victoryTier = params.victoryTier || inferChongshanVictoryTierFromNarrative(base);
+    return appendNarrativeHint(base, buildChongshanEndingHint(victoryTier));
+  }
+
+  const fallReason = params.fallReasonCode || 'fall_route_incomplete';
+  const sanitized = sanitizeChongshanDefeatNarrative(base);
+  const withEnding = appendNarrativeHint(sanitized, buildChongshanFallEndingHint(fallReason));
+  return appendNarrativeHint(withEnding, buildChongshanFallCauseHint(fallReason));
 };
 
 const appendNarrativeHint = (narrative: string, hint: string): string => {
@@ -723,6 +1151,86 @@ const buildDecoyEvidence = (turnNumber: number): Evidence => {
     description: '页角被反复涂改，时间轴自相矛盾，只能证明这里有人故意误导路线。',
     type: 'document',
   };
+};
+
+const getSanityPaceBand = (turnNumber: number, maxTurns: number): { min: number; max: number } => {
+  const earlyTurn = Math.max(4, Math.floor(maxTurns * 0.35));
+  const midTurn = Math.max(8, Math.floor(maxTurns * 0.7));
+  if (turnNumber <= earlyTurn) {
+    return { min: 65, max: 86 };
+  }
+  if (turnNumber <= midTurn) {
+    return { min: 38, max: 68 };
+  }
+  return { min: 16, max: 52 };
+};
+
+const calibrateSanityChange = (params: {
+  rawSanityChange: number;
+  actionType: ActionType;
+  currentSanity: number;
+  turnNumber: number;
+  maxTurns: number;
+  currentAction: string;
+  directorState: DifficultyDirectorState;
+  gameConfig: GameConfig;
+}): number => {
+  const {
+    rawSanityChange,
+    actionType,
+    currentSanity,
+    turnNumber,
+    maxTurns,
+    currentAction,
+    directorState,
+    gameConfig,
+  } = params;
+
+  let tuned = Number.isFinite(rawSanityChange) ? rawSanityChange : 0;
+  const explicitCoreViolation = textIncludesAny(currentAction, CHONGSHAN_EARLY_FATAL_ACTION_KEYWORDS);
+  const isVerificationAction = textIncludesAny(currentAction, VERIFY_KEYWORDS);
+
+  if (explicitCoreViolation) {
+    tuned = clamp(tuned, gameConfig.sanityPenaltyFatal, Math.floor(gameConfig.sanityPenaltyFatal / 2));
+  } else if (actionType === 'risky') {
+    tuned = clamp(tuned, Math.max(gameConfig.sanityPenaltyRule, -18), -4);
+  } else if (actionType === 'item') {
+    tuned = clamp(tuned, -10, 2);
+  } else {
+    tuned = clamp(tuned, -8, 2);
+  }
+
+  const lowSanity = currentSanity <= 35;
+  const shouldGiveBreather = !explicitCoreViolation
+    && actionType !== 'risky'
+    && (
+      isVerificationAction
+      || directorState.ruleVerificationProgress >= 1
+      || turnNumber % 4 === 0
+    );
+
+  if (shouldGiveBreather && lowSanity) {
+    tuned = Math.max(tuned, 1);
+  } else if (shouldGiveBreather && currentSanity <= 55) {
+    tuned = Math.max(tuned, 0);
+  }
+
+  let projected = clamp(currentSanity + tuned, 0, 100);
+  if (!explicitCoreViolation) {
+    const paceBand = getSanityPaceBand(turnNumber, maxTurns);
+    if (projected < paceBand.min && actionType !== 'risky') {
+      const recovery = Math.min(4, paceBand.min - projected);
+      tuned += recovery;
+      projected = clamp(currentSanity + tuned, 0, 100);
+    }
+
+    if (projected > paceBand.max && actionType === 'risky') {
+      const extraPenalty = Math.min(3, projected - paceBand.max);
+      tuned -= extraPenalty;
+    }
+  }
+
+  return Math.round(clamp(tuned, gameConfig.sanityPenaltyFatal, 3));
 };
 
 const analyzeDifficultyDirectorState = (
@@ -830,6 +1338,7 @@ Dynamic Difficulty Director (${profileLabel}):
 - Clue Item Count: ${state.clueItemCount}
 - Consecutive Risky Actions: ${state.consecutiveRisky}
 - Minimum ending turn: ${state.minEndingTurn}
+- Minimum victory turn floor (Chongshan hard rule): ${CHONGSHAN_MIN_VICTORY_TURN}
 - Recent Verification Actions (last 4 turns): ${state.recentVerificationActions}
 - Known Rules Reliability: ${knownRulesReliability}
 - True Ending currently unlockable: ${canAttemptTrueEnding ? 'YES' : 'NO'}
@@ -840,7 +1349,7 @@ Director Constraints:
 2) From turn 4 onward, include a verification-oriented branch every turn until Strict Verification Actions >= ${gate.trueVerifyActions}.
 3) Keep major evidence sparse: usually once every 3 turns unless player takes a high-risk verified route.
 4) High Threat Clock should increase route denial / fake guidance / timing pressure, not just sanity damage.
-5) Do NOT output any ending before Minimum ending turn unless sanity drops to 0.
+5) Do NOT output victory before Minimum ending turn, and never before turn ${CHONGSHAN_MIN_VICTORY_TURN} in Chongshan mode. Early game_over is allowed only for irreversible fatal rule violations or sanity <= 0.
 6) For this mode, target low victory rate (roughly ${gate.targetVictoryRateHint}) by enforcing hard ending gates.
 7) If ending requirements are not met, do NOT output victory. Provide partial progress or failure outcome instead.`;
 };
@@ -850,6 +1359,7 @@ const applyDifficultyDirector = ({
   directorState,
   turnNumber,
   maxTurns,
+  gameConfig,
   isOvertime,
   currentRules,
   inventory,
@@ -874,7 +1384,17 @@ const applyDifficultyDirector = ({
 
   const actionType = directorState.lastActionType;
   const plotItemKeywords = buildPlotItemKeywords(storyTitle, storySlug);
-  const projectedSanity = clamp(currentSanity + (Number(tuned.sanity_change) || 0), 0, 100);
+  tuned.sanity_change = calibrateSanityChange({
+    rawSanityChange: Number(tuned.sanity_change) || 0,
+    actionType,
+    currentSanity,
+    turnNumber,
+    maxTurns,
+    currentAction,
+    directorState,
+    gameConfig,
+  });
+  let projectedSanity = clamp(currentSanity + (Number(tuned.sanity_change) || 0), 0, 100);
   const expectedEvidenceCap = Math.max(2, Math.floor((turnNumber + 2) / 4) + 1);
   const allowHeavyDiscovery = actionType === 'risky' || (actionType === 'investigate' && directorState.strictVerificationActions >= 2);
   const isEvidenceWindow = turnNumber <= 2
@@ -933,14 +1453,42 @@ const applyDifficultyDirector = ({
   const allowVictory = baseAllowVictory || emergencyAllowVictory;
 
   const isPrematureEnding = tuned.is_game_over && !isOvertime && turnNumber < directorState.minEndingTurn && projectedSanity > 0;
-  if (isPrematureEnding) {
+  const allowPrematureFailure = isChongshan
+    && tuned.is_game_over
+    && !tuned.is_victory
+    && shouldAllowChongshanPrematureFailure({
+      currentAction,
+      narrative: tuned.narrative,
+      directorState,
+    });
+  if (isPrematureEnding && !allowPrematureFailure) {
     tuned.is_game_over = false;
     tuned.is_victory = false;
     tuned.narrative = appendNarrativeHint(tuned.narrative, '你还没完成最基本的封印校验，现在收束只会导致误判。');
+  } else if (isPrematureEnding && allowPrematureFailure) {
+    tuned.is_game_over = true;
+    tuned.is_victory = false;
+    tuned.narrative = appendNarrativeHint(tuned.narrative, '你触发了不可逆规则冲突，中盘提前坠入失败线。');
   }
 
   let lockedChongshanVictory = false;
+  let resolvedChongshanVictoryTier: Exclude<ChongshanEndingTier, 'fall' | null> | null = null;
+  let resolvedChongshanFallReason: ChongshanFallReasonCode | null = null;
+  let pendingRescueChoices: Choice[] | null = null;
+  let rescueWindowOpened = false;
   if (isChongshan) {
+    const modelSignaledEnding = tuned.is_game_over;
+    const chongshanRoute = detectChongshanRoute(currentAction);
+    const fallContextBase: ChongshanFallReasonContext = {
+      directorState,
+      route: chongshanRoute,
+      currentAction,
+      projectedSanity,
+      turnNumber,
+      hardEndingTurn,
+      hasEndingIntent,
+      isModelEnding: modelSignaledEnding,
+    };
     const tier = resolveChongshanEndingTier({
       directorState,
       currentAction,
@@ -948,23 +1496,76 @@ const applyDifficultyDirector = ({
       projectedSanity,
       hardEndingTurn,
       hasEndingIntent,
-      isModelEnding: tuned.is_game_over,
+      isModelEnding: modelSignaledEnding,
     });
     if (tier === 'perfect' || tier === 'normal' || tier === 'pass') {
       tuned.is_game_over = true;
       tuned.is_victory = true;
+      resolvedChongshanVictoryTier = tier;
       tuned.narrative = appendNarrativeHint(tuned.narrative, buildChongshanEndingHint(tier));
       lockedChongshanVictory = true;
     } else if (tier === 'fall') {
-      tuned.is_game_over = true;
-      tuned.is_victory = false;
-      tuned.narrative = appendNarrativeHint(tuned.narrative, buildChongshanEndingHint(tier));
+      resolvedChongshanFallReason = inferChongshanFallReasonCode(fallContextBase);
+      const rescueAlreadyUsed = hasRescueActionInHistory(directorState) || hasRescueAction(currentAction);
+      const canOpenRescueWindow = !rescueAlreadyUsed
+        && !isOvertime
+        && projectedSanity > 0
+        && turnNumber < hardEndingTurn
+        && turnNumber <= directorState.minEndingTurn + CHONGSHAN_RESCUE_WINDOW_TURNS
+        && (resolvedChongshanFallReason === 'fall_rule_chain_break' || resolvedChongshanFallReason === 'fall_rule_conflict');
+
+      if (canOpenRescueWindow) {
+        tuned.is_game_over = false;
+        tuned.is_victory = false;
+        rescueWindowOpened = true;
+        pendingRescueChoices = buildChongshanRescueChoices(resolvedChongshanFallReason);
+        tuned.narrative = appendNarrativeHint(
+          tuned.narrative,
+          `补救窗口已开启：当前失败原因为${resolvedChongshanFallReason === 'fall_rule_chain_break' ? '校验链断裂' : '规则冲突'}，你还有1次补链机会。`,
+        );
+        tuned.narrative = appendNarrativeHint(
+          tuned.narrative,
+          '请优先执行带【补救链】或【补救冲突】标记的动作，成功后可恢复终章判定资格。',
+        );
+        resolvedChongshanFallReason = null;
+      } else {
+        tuned.is_game_over = true;
+        tuned.is_victory = false;
+        tuned.narrative = appendNarrativeHint(tuned.narrative, buildChongshanFallEndingHint(resolvedChongshanFallReason));
+        tuned.narrative = appendNarrativeHint(tuned.narrative, buildChongshanFallCauseHint(resolvedChongshanFallReason));
+      }
     }
+  }
+
+  if (isChongshan && !tuned.is_game_over) {
+    const missingCoreProgress = directorState.strictVerificationActions < gate.trueVerifyActions
+      || directorState.recentVerificationActions < gate.trueRecentVerifyActions
+      || directorState.plotItemCount < gate.truePlotItems
+      || directorState.deepZoneProgress < gate.trueDeepZone;
+    const shouldInjectProgressHint = turnNumber >= CHONGSHAN_PROGRESS_HINT_START_TURN
+      && (missingCoreProgress || turnNumber <= CHONGSHAN_PROGRESS_HINT_END_TURN || turnNumber >= directorState.minEndingTurn - 1);
+    if (shouldInjectProgressHint) {
+      tuned.narrative = appendNarrativeHint(tuned.narrative, buildChongshanProgressHint({
+        directorState,
+        gate,
+        turnNumber,
+        maxTurns,
+        isNearEndingWindow: turnNumber >= directorState.minEndingTurn - 1,
+      }));
+    }
+  }
+
+  if (isChongshan && tuned.is_victory && turnNumber < CHONGSHAN_MIN_VICTORY_TURN) {
+    tuned.is_victory = false;
+    tuned.is_game_over = false;
+    lockedChongshanVictory = false;
+    tuned.narrative = appendNarrativeHint(tuned.narrative, `回合数不足，胜利判定被驳回（崇山最低胜利回合：${CHONGSHAN_MIN_VICTORY_TURN}）。`);
   }
 
   if (tuned.is_victory && !allowVictory && !lockedChongshanVictory) {
     tuned.is_victory = false;
     tuned.is_game_over = turnNumber >= hardEndingTurn || projectedSanity <= 0;
+    resolvedChongshanVictoryTier = null;
     tuned.narrative = appendNarrativeHint(tuned.narrative, '你突然意识到：封印校验步骤尚未完成，贸然收束只会让裂缝反扑。');
   }
 
@@ -1001,6 +1602,41 @@ const applyDifficultyDirector = ({
     const replaceIndex = tuned.choices.findIndex((choice) => choice.actionType === 'move');
     const targetIndex = replaceIndex >= 0 ? replaceIndex : tuned.choices.length - 1;
     tuned.choices[targetIndex] = verificationChoice;
+
+    if (directorState.strictVerificationActions <= 2) {
+      const secondaryChoice = buildVerificationItemChoice();
+      const secondaryIndex = tuned.choices.findIndex(
+        (choice, index) => index !== targetIndex
+          && choice.actionType !== 'risky'
+          && !textIncludesAny(choice.text, VERIFY_KEYWORDS),
+      );
+      if (secondaryIndex >= 0) {
+        tuned.choices[secondaryIndex] = secondaryChoice;
+      }
+    }
+  }
+
+  const shouldInjectDeepZoneChoice = isChongshan
+    && !tuned.is_game_over
+    && turnNumber >= CHONGSHAN_DEEP_ZONE_PUSH_TURN
+    && directorState.deepZoneProgress < gate.trueDeepZone
+    && !hasDeepZoneChoice(tuned.choices);
+  if (shouldInjectDeepZoneChoice) {
+    const deepZoneChoice = buildDeepZoneChoice(directorState.deepZoneProgress);
+    const replaceIndex = tuned.choices.findIndex((choice) =>
+      choice.actionType !== 'risky'
+      && !textIncludesAny(choice.text, VERIFY_KEYWORDS)
+      && !textIncludesAny(choice.text, ENDING_ACTION_KEYWORDS));
+    const targetIndex = replaceIndex >= 0 ? replaceIndex : tuned.choices.length - 1;
+    tuned.choices[targetIndex] = deepZoneChoice;
+    tuned.narrative = appendNarrativeHint(tuned.narrative, '主线仍卡在深区推进，先进入东楼/地下二层补齐关键定位再尝试终局。');
+  }
+
+  if (pendingRescueChoices && !tuned.is_game_over) {
+    tuned.choices = ensureChoiceShape(pendingRescueChoices, tuned.location_name);
+    if (!rescueWindowOpened) {
+      tuned.narrative = appendNarrativeHint(tuned.narrative, '补救窗口触发：请先完成补链动作，再继续终局推进。');
+    }
   }
 
   // If the player repeatedly chooses risky actions and ignores verification, add structural pressure.
@@ -1016,6 +1652,40 @@ const applyDifficultyDirector = ({
   if (projectedSanity <= 0 && !tuned.is_victory) {
     tuned.is_game_over = true;
     tuned.is_victory = false;
+    if (isChongshan && !resolvedChongshanFallReason) {
+      resolvedChongshanFallReason = inferChongshanFallReasonCode({
+        directorState,
+        route: detectChongshanRoute(currentAction),
+        currentAction,
+        projectedSanity,
+        turnNumber,
+        hardEndingTurn,
+        hasEndingIntent,
+        isModelEnding: true,
+      });
+    }
+  }
+
+  if (isChongshan) {
+    if (tuned.is_game_over && !tuned.is_victory && !resolvedChongshanFallReason) {
+      resolvedChongshanFallReason = inferChongshanFallReasonCode({
+        directorState,
+        route: detectChongshanRoute(currentAction),
+        currentAction,
+        projectedSanity,
+        turnNumber,
+        hardEndingTurn,
+        hasEndingIntent,
+        isModelEnding: tuned.is_game_over,
+      });
+    }
+    tuned.narrative = normalizeChongshanTerminalNarrative({
+      narrative: tuned.narrative,
+      isGameOver: tuned.is_game_over,
+      isVictory: tuned.is_victory,
+      victoryTier: resolvedChongshanVictoryTier,
+      fallReasonCode: resolvedChongshanFallReason,
+    });
   }
 
   tuned.choices = tuned.is_game_over ? [] : ensureChoiceShape(tuned.choices, tuned.location_name);
@@ -1134,6 +1804,7 @@ Begin wrapping up the narrative. REMEMBER: Focus on resolving the PLOT (items/ex
       directorState,
       turnNumber,
       maxTurns: gameConfig.maxTurns,
+      gameConfig,
       isOvertime,
       currentRules,
       inventory,
@@ -1182,6 +1853,7 @@ Begin wrapping up the narrative. REMEMBER: Focus on resolving the PLOT (items/ex
         directorState,
         turnNumber,
         maxTurns: gameConfig.maxTurns,
+        gameConfig,
         isOvertime,
         currentRules,
         inventory,
@@ -1195,17 +1867,29 @@ Begin wrapping up the narrative. REMEMBER: Focus on resolving the PLOT (items/ex
       const err = error instanceof Error ? error : new Error(String(error));
       lastError = err;
       const isInvalidJsonError = err.message.includes('Invalid JSON');
+      const shouldBackoff = !isInvalidJsonError && isTransientOpenAIError(err.message);
       console.warn('[turn-generate] openai attempt failed', {
         attempt,
         openAiModel,
         isRepairAttempt,
         isInvalidJsonError,
+        shouldBackoff,
         message: err.message,
         rawPreview: previewText(lastRawText || ''),
       });
 
       if (attempt >= TURN_JSON_MAX_ATTEMPTS) {
         throw err;
+      }
+
+      if (shouldBackoff) {
+        const delayMs = computeOpenAIRetryDelayMs(attempt);
+        console.warn('[turn-generate] openai transient backoff', {
+          attempt,
+          delayMs,
+          message: err.message,
+        });
+        await sleepMs(delayMs);
       }
     }
   }

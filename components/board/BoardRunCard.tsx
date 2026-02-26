@@ -1,6 +1,7 @@
 import React from 'react';
 import type { BoardRunSnapshot } from '../../types';
 import { formatRunLastEventText, type BoardLang } from './boardText';
+import i18n from '../../lib/i18n';
 
 type BoardRunCardProps = {
   run: BoardRunSnapshot;
@@ -41,61 +42,62 @@ const profileFromRun = (run: BoardRunSnapshot, seed: number): CardProfile => {
 };
 
 const profileTone = (profile: CardProfile, lang: BoardLang) => {
+  const t = i18n.getFixedT(lang);
   switch (profile) {
     case 'critical':
       return {
         border: 'border-red-500 shadow-[0_0_18px_rgba(234,42,51,0.25)]',
         header: 'from-red-500/30 to-transparent',
         badge: 'bg-red-500 text-white animate-pulse',
-        badgeLabel: lang === 'zh' ? '危急' : 'CRITICAL',
+        badgeLabel: t('board.critical'),
         sync: 'bg-yellow-600',
         sanity: 'bg-red-500',
         signal: 'text-red-300',
-        state: lang === 'zh' ? '噪点异常' : 'NOISE DETECTED',
+        state: t('board.noise_detected'),
       };
     case 'stable':
       return {
         border: 'border-emerald-500/30',
         header: 'from-emerald-500/20 to-transparent',
         badge: 'bg-emerald-700/40 text-emerald-200',
-        badgeLabel: lang === 'zh' ? '稳定' : 'STABLE',
+        badgeLabel: t('board.stable'),
         sync: 'bg-emerald-500',
         sanity: 'bg-emerald-500',
         signal: 'text-emerald-300',
-        state: lang === 'zh' ? '信号清晰' : 'CLEAR',
+        state: t('board.clear'),
       };
     case 'combat':
       return {
         border: 'border-yellow-500/35',
         header: 'from-yellow-500/20 to-transparent',
         badge: 'bg-yellow-700/40 text-yellow-200',
-        badgeLabel: lang === 'zh' ? '高危' : 'COMBAT',
+        badgeLabel: t('board.combat'),
         sync: 'bg-yellow-500',
         sanity: 'bg-yellow-500',
         signal: 'text-yellow-300',
-        state: lang === 'zh' ? '敌对区域' : 'HOSTILE',
+        state: t('board.hostile'),
       };
     case 'offline':
       return {
         border: 'border-slate-600/70',
         header: 'from-slate-700/30 to-transparent',
         badge: 'bg-slate-700/50 text-slate-300',
-        badgeLabel: lang === 'zh' ? '离线' : 'OFFLINE',
+        badgeLabel: t('board.offline'),
         sync: 'bg-slate-600',
         sanity: 'bg-slate-600',
         signal: 'text-slate-500',
-        state: lang === 'zh' ? '信号丢失' : 'SIGNAL LOST',
+        state: t('board.signal_lost'),
       };
     default:
       return {
         border: 'border-cyan-500/35',
         header: 'from-cyan-500/20 to-transparent',
         badge: 'bg-cyan-700/40 text-cyan-200',
-        badgeLabel: lang === 'zh' ? '在线' : 'LIVE',
+        badgeLabel: t('board.live'),
         sync: 'bg-cyan-500',
         sanity: 'bg-emerald-500',
         signal: 'text-cyan-200',
-        state: lang === 'zh' ? '扫描中' : 'SCANNING',
+        state: t('board.scanning'),
       };
   }
 };
@@ -109,14 +111,18 @@ const imageClassByProfile = (profile: CardProfile): string => {
 };
 
 const statusLabelByRun = (run: BoardRunSnapshot, lang: BoardLang): string => {
-  if (run.status === 'active') return lang === 'zh' ? '实时监测' : 'LIVE FEED';
-  if (run.status === 'completed') return lang === 'zh' ? '已归档·通关' : 'ARCHIVED VICTORY';
-  if (run.status === 'failed') return lang === 'zh' ? '已归档·死亡' : 'ARCHIVED DEATH';
-  if (run.status === 'abandoned') return lang === 'zh' ? '已放弃' : 'ABANDONED';
-  return lang === 'zh' ? '存档' : 'ARCHIVE';
+  const t = i18n.getFixedT(lang);
+  if (run.status === 'active') return t('board.live_feed');
+  if (run.status === 'completed') return t('board.archived_victory');
+  if (run.status === 'failed') return t('board.archived_death');
+  if (run.status === 'abandoned') return t('board.abandoned');
+  return t('board.archive');
 };
 
-const formatActor = (actorType: BoardRunSnapshot['actorType']) => (actorType === 'agent' ? 'AGENT' : 'HUMAN');
+const formatActor = (actorType: BoardRunSnapshot['actorType'], lang: BoardLang) => {
+  const t = i18n.getFixedT(lang);
+  return actorType === 'agent' ? t('board.agent') : t('board.human');
+};
 
 export const BoardRunCard: React.FC<BoardRunCardProps> = ({ run, index, lang, selected = false, onSelect }) => {
   const seed = hashString(`${run.runId}-${index}`);
@@ -140,8 +146,8 @@ export const BoardRunCard: React.FC<BoardRunCardProps> = ({ run, index, lang, se
       <div className={`flex items-center justify-between border-b border-slate-700/60 bg-gradient-to-r ${tone.header} px-4 py-3`}>
         <div className="flex items-center gap-2 min-w-0 pr-2">
           <span className="material-symbols-outlined text-sm text-slate-300 shrink-0">{profile === 'offline' ? 'wifi_off' : 'radar'}</span>
-          <h3 className="text-sm font-bold tracking-[0.14em] text-white truncate" title={`${formatActor(run.actorType)}_${run.walletMasked}`}>
-            {formatActor(run.actorType)}_{run.walletMasked}
+          <h3 className="text-sm font-bold tracking-[0.14em] text-white truncate" title={`${formatActor(run.actorType, lang)}_${run.walletMasked}`}>
+            {formatActor(run.actorType, lang)}_{run.walletMasked}
           </h3>
         </div>
         <div className="flex items-center gap-2 shrink-0">
@@ -156,7 +162,7 @@ export const BoardRunCard: React.FC<BoardRunCardProps> = ({ run, index, lang, se
         <img
           className={`h-full w-full object-cover transition-transform duration-700 group-hover:scale-105 ${imageClassByProfile(profile)}`}
           src={feedImage}
-          alt={lang === 'zh' ? '看板画面' : 'board feed'}
+          alt={i18n.t('board.board_feed', { lng: lang })}
         />
         <div className="absolute inset-0 bg-gradient-to-t from-black via-transparent to-transparent opacity-90" />
 
@@ -167,13 +173,13 @@ export const BoardRunCard: React.FC<BoardRunCardProps> = ({ run, index, lang, se
         {profile === 'offline' && (
           <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/50">
             <div className="rounded border border-white/20 bg-black/85 px-4 py-2 font-mono text-xs tracking-[0.14em] text-white">
-              {lang === 'zh' ? '信号丢失' : 'SIGNAL LOST'}
+              {i18n.t('board.signal_lost', { lng: lang })}
             </div>
           </div>
         )}
 
         <div className="absolute bottom-2 left-2 right-2 flex items-end justify-between text-[10px] font-mono">
-          <span className="text-slate-400">{lang === 'zh' ? '位置' : 'LOC'}: {run.location || (lang === 'zh' ? '未知' : 'UNKNOWN')}</span>
+          <span className="text-slate-400">{i18n.t('board.loc', { lng: lang })}: {run.location || i18n.t('board.unknown', { lng: lang })}</span>
           <span className={tone.signal}>{tone.state}</span>
         </div>
       </div>
@@ -182,7 +188,7 @@ export const BoardRunCard: React.FC<BoardRunCardProps> = ({ run, index, lang, se
         <div className="space-y-3">
           <div>
             <div className="mb-1 flex justify-between text-xs">
-              <span className="text-slate-400">{lang === 'zh' ? '同步率' : 'SYNC RATE'}</span>
+              <span className="text-slate-400">{i18n.t('board.sync_rate', { lng: lang })}</span>
               <span className="text-slate-200">{syncRate}%</span>
             </div>
             <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-800">
@@ -192,7 +198,7 @@ export const BoardRunCard: React.FC<BoardRunCardProps> = ({ run, index, lang, se
 
           <div>
             <div className="mb-1 flex justify-between text-xs">
-              <span className="font-bold text-red-400">{lang === 'zh' ? '理智' : 'SANITY'}</span>
+              <span className="font-bold text-red-400">{i18n.t('board.sanity', { lng: lang })}</span>
               <span className="font-bold text-red-300">{profile === 'offline' ? '--' : `${run.sanity}%`}</span>
             </div>
             <div className="h-1.5 w-full overflow-hidden rounded-full border border-red-500/25 bg-slate-800">
@@ -202,19 +208,19 @@ export const BoardRunCard: React.FC<BoardRunCardProps> = ({ run, index, lang, se
 
           <div className="grid grid-cols-2 gap-2 text-[11px] font-mono text-slate-400">
             <div className="rounded border border-slate-700 bg-black/65 px-2 py-1 text-center">
-              <div className="text-[10px] text-slate-500">{lang === 'zh' ? '回合' : 'TURN'}</div>
+              <div className="text-[10px] text-slate-500">{i18n.t('board.turn', { lng: lang })}</div>
               <div className="text-white">{run.turnNo}</div>
             </div>
             <div className="rounded border border-slate-700 bg-black/65 px-2 py-1 text-center">
-              <div className="text-[10px] text-slate-500">{lang === 'zh' ? '角色' : 'ROLE'}</div>
-              <div className="text-white">{formatActor(run.actorType)}</div>
+              <div className="text-[10px] text-slate-500">{i18n.t('board.role', { lng: lang })}</div>
+              <div className="text-white">{formatActor(run.actorType, lang)}</div>
             </div>
           </div>
         </div>
 
         <div className="mt-4 h-14 overflow-hidden rounded border border-slate-800 bg-black p-2">
           <div className="mb-1 text-[10px] uppercase tracking-wider text-slate-600">
-            {lang === 'zh' ? '当前动态' : 'Current Action'}
+            {i18n.t('board.current_action', { lng: lang })}
           </div>
           {shouldTicker ? (
             <div className="board-ticker-wrap">

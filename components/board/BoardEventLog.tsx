@@ -1,6 +1,7 @@
 import React from 'react';
 import type { BoardEvent } from '../../types';
 import { eventTypeLabel, formatBoardClock, formatBoardEventMessage, type BoardLang } from './boardText';
+import i18n from '../../lib/i18n';
 
 type BoardEventLogProps = {
   events: BoardEvent[];
@@ -20,12 +21,12 @@ export const BoardEventLog: React.FC<BoardEventLogProps> = ({ events, lang }) =>
   return (
     <footer className="relative h-44 shrink-0 overflow-hidden border-t-2 border-red-500 bg-black/95 shadow-[0_-8px_20px_rgba(0,0,0,0.8)]">
       <div className="absolute left-0 top-0 bg-red-500 px-2 py-0.5 text-[10px] font-bold text-black">
-        {lang === 'zh' ? '事件流' : 'EVENT LOG'}
+        {i18n.t('board.event_log', { lng: lang })}
       </div>
       <div className="h-full overflow-y-auto p-4 pt-6 font-mono text-sm custom-scrollbar">
         {events.length === 0 && (
           <div className="text-sm text-slate-500">
-            {lang === 'zh' ? '暂无事件，等待新的探索动态...' : 'No events yet, waiting for new run updates...'}
+            {i18n.t('board.no_events', { lng: lang })}
           </div>
         )}
         <div className="space-y-1">

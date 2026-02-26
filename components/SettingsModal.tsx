@@ -169,7 +169,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 <div className="flex-1 overflow-y-auto custom-scrollbar pr-2 relative z-20">
                     <div className="space-y-4 font-header">
                         <div>
-                            <label className="block text-hospital-white mb-2 text-sm">Language / 语言</label>
+                            <label className="block text-hospital-white mb-2 text-sm">{t('settings.language')}</label>
                             <div className="flex space-x-4 mb-4">
                                 <button
                                     onClick={() => onLanguageChange && onLanguageChange('en')}
@@ -341,7 +341,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                                         type="password"
                                         value={pollinationsApiKey}
                                         onChange={(e) => setPollinationsApiKey(e.target.value)}
-                                        placeholder="Pollinations.ai Key (提高速率限制)"
+                                        placeholder={t('settings.pollinations_key_placeholder')}
                                         className="w-full bg-black border-2 border-metal-grey text-sickly-green p-2 focus:outline-none focus:border-sickly-green placeholder-gray-700"
                                     />
                                     <div className="flex justify-end mt-2">

@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import { Evidence } from '../types';
 
 interface ItemProps {
@@ -40,6 +41,7 @@ export const Polaroid: React.FC<ItemProps> = ({ item, className = '' }) => {
 // 2. Sticky Note (for 'item' and general notes)
 // ------------------------------------------------------------------
 export const StickyNote: React.FC<ItemProps> = ({ item, className = '' }) => {
+    const { t } = useTranslation();
     // Randomize color slightly based on ID logic or just default yellow for now
     // We can add variations later
     const colors = [
@@ -67,7 +69,7 @@ export const StickyNote: React.FC<ItemProps> = ({ item, className = '' }) => {
             </p>
 
             <div className="absolute bottom-1 right-1 opacity-20 transform rotate-[-5deg] font-mono text-[10px]">
-                线索: {item.id.slice(0, 4)}
+                {t('evidence.clue_prefix')}{item.id.slice(0, 4)}
             </div>
         </div>
     );
@@ -77,6 +79,7 @@ export const StickyNote: React.FC<ItemProps> = ({ item, className = '' }) => {
 // 3. Confidential Document (for 'document')
 // ------------------------------------------------------------------
 export const ConfidentialDoc: React.FC<ItemProps> = ({ item, className = '' }) => {
+    const { t } = useTranslation();
     return (
         <div className={`relative bg-[#f4f1ea] w-56 p-4 shadow-xl transition-transform hover:scale-105 ${className}`}>
             {/* Paper texture feel */}
@@ -84,9 +87,9 @@ export const ConfidentialDoc: React.FC<ItemProps> = ({ item, className = '' }) =
 
             {/* Header */}
             <div className="flex justify-between items-end border-b-2 border-black/80 mb-3 pb-1">
-                <span className="font-header text-xs tracking-widest text-neutral-500">机密</span>
+                <span className="font-header text-xs tracking-widest text-neutral-500">{t('evidence.classified')}</span>
                 <span className="font-mono text-xs text-red-700 font-bold border border-red-700 px-1 rounded rotate-[10deg]">
-                    绝密
+                    {t('evidence.top_secret')}
                 </span>
             </div>
 
@@ -97,12 +100,12 @@ export const ConfidentialDoc: React.FC<ItemProps> = ({ item, className = '' }) =
             <div className="font-body text-xs text-justify leading-relaxed text-neutral-800 relative">
                 {item.description}
                 {/* Redaction block example visually */}
-                <span className="bg-black text-black select-none ml-1">已涂抹</span>
+                <span className="bg-black text-black select-none ml-1">{t('evidence.redacted')}</span>
             </div>
 
             {/* Stamp */}
             <div className="absolute bottom-2 right-2 opacity-30 rotate-[-20deg] border-4 border-red-800 text-red-800 font-header font-bold text-2xl px-2 py-1 pointer-events-none">
-                内部资料
+                {t('evidence.internal_use')}
             </div>
         </div>
     );
