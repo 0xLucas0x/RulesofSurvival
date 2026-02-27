@@ -21,8 +21,17 @@ type TerminalReason =
   | 'fall_route_incomplete'
   | 'timeout'
   | 'error';
+type TurnOfferedChoiceRecord = {
+  id: string;
+  text: string;
+  actionType: Choice['actionType'];
+};
 type TurnReplayRecord = {
   turn: number;
+  offeredChoices: TurnOfferedChoiceRecord[];
+  offeredChoiceCount: number;
+  selectedChoiceId: string;
+  selectedChoiceIndex: number;
   choiceText: string;
   choiceType: Choice['actionType'];
   sanityBefore: number;
@@ -915,6 +924,11 @@ const runSingleGame = async (gameNo: number, systemInstructionOverride?: string)
     const locationBefore = location;
     const rulesBefore = rules.length;
     const inventoryBefore = inventory.length;
+    const offeredChoices: TurnOfferedChoiceRecord[] = choices.map((option) => ({
+      id: option.id,
+      text: option.text,
+      actionType: option.actionType,
+    }));
     const choice = await pickChoiceByStrategy({
       choices,
       turn,
@@ -926,6 +940,11 @@ const runSingleGame = async (gameNo: number, systemInstructionOverride?: string)
       history,
       timeline,
     });
+    const selectedChoiceIndex = offeredChoices.findIndex((option) => option.id === choice.id);
+    const selectedChoiceFallbackIndex = selectedChoiceIndex >= 0
+      ? selectedChoiceIndex
+      : offeredChoices.findIndex((option) => option.text === choice.text && option.actionType === choice.actionType);
+    const selectedChoiceSafeIndex = selectedChoiceFallbackIndex >= 0 ? selectedChoiceFallbackIndex : -1;
     history.push(`Turn ${turn}: Location: ${location}. Choice Made: ${choice.text} (${choice.actionType})`);
     console.log(`[G${gameNo}] turn=${turn} choiceType=${choice.actionType}`);
     const response = await withTimeout(
@@ -974,6 +993,10 @@ const runSingleGame = async (gameNo: number, systemInstructionOverride?: string)
 
     timeline.push({
       turn,
+      offeredChoices,
+      offeredChoiceCount: offeredChoices.length,
+      selectedChoiceId: choice.id,
+      selectedChoiceIndex: selectedChoiceSafeIndex,
       choiceText: choice.text,
       choiceType: choice.actionType,
       sanityBefore,

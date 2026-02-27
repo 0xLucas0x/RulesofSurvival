@@ -210,6 +210,40 @@ const GameShell: React.FC<{ wallet: WalletBridge }> = ({ wallet }) => {
         void completeWalletLogin();
     }, [authUser, completeWalletLogin, pendingEntry, primaryWallet, showAuthGate]);
 
+    useEffect(() => {
+        if (!hasDynamicEnv || !sdkHasLoaded) return;
+        if (!authUser || authUser.authProvider !== 'wallet') return;
+
+        const connectedWalletAddress = primaryWallet?.address?.toLowerCase() || null;
+        const sessionWalletAddress = authUser.walletAddress.toLowerCase();
+        const walletSwitched = Boolean(connectedWalletAddress) && connectedWalletAddress !== sessionWalletAddress;
+        const walletDisconnected = !connectedWalletAddress;
+
+        if (!walletSwitched && !walletDisconnected) return;
+
+        let cancelled = false;
+        const clearStaleSession = async () => {
+            await logoutAuth();
+            if (cancelled) return;
+            setAuthError(null);
+            setAuthUser(null);
+            setRunSummary(null);
+            setGameState(buildState(INITIAL_STATE));
+            setShowEvidence(false);
+            setHasNewEvidence(false);
+            setShowIntro(false);
+            setShowAuthGate(true);
+            setPendingEntry('human');
+            setGuestTrialConsumed(false);
+            attemptedAutoLoginWalletRef.current = null;
+        };
+
+        void clearStaleSession();
+        return () => {
+            cancelled = true;
+        };
+    }, [authUser, primaryWallet?.address, sdkHasLoaded]);
+
     const handleLogout = useCallback(async () => {
         await logoutAuth();
         try { await handleLogOut(); } catch (e) { console.error('Dynamic wallet logout failed', e); }

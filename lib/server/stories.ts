@@ -1115,8 +1115,8 @@ const resolveGenerationModelConfig = async (params: {
   }
 
   if (params.llmOverride) {
-    if (!params.llmOverride.apiKey) {
-      throw new HttpError(400, 'llmOverride.apiKey is required');
+    if (params.llmOverride.provider === 'gemini' && !params.llmOverride.apiKey) {
+      throw new HttpError(400, 'llmOverride.apiKey is required for gemini');
     }
     if (params.llmOverride.provider === 'openai' && !params.llmOverride.baseUrl) {
       throw new HttpError(400, 'llmOverride.baseUrl is required for openai');
@@ -1132,7 +1132,7 @@ const resolveGenerationModelConfig = async (params: {
   }
 
   if (params.modelSource === 'lab') {
-    throw new HttpError(400, 'modelSource=lab requires llmOverride with provider/baseUrl/model/apiKey');
+    throw new HttpError(400, 'modelSource=lab requires llmOverride with provider/baseUrl/model');
   }
 
   if (params.modelSource === 'global') {
@@ -1845,12 +1845,15 @@ export const resolveStoryLlmForTurn = async (storyId?: string | null) => {
 const requestStoryDraftRawJson = async (params: {
   provider: 'gemini' | 'openai';
   baseUrl: string | null;
-  apiKey: string;
+  apiKey: string | null;
   model: string;
   systemPrompt: string;
   userPrompt: string;
 }): Promise<string> => {
   if (params.provider === 'gemini') {
+    if (!params.apiKey) {
+      throw new HttpError(400, 'Gemini provider requires apiKey');
+    }
     const ai = new GoogleGenAI({ apiKey: params.apiKey });
     const response = await ai.models.generateContent({
       model: params.model,
@@ -1870,12 +1873,16 @@ const requestStoryDraftRawJson = async (params: {
   }
 
   const cleanUrl = normalizeOpenAIBaseUrl(params.baseUrl);
+  const normalizedApiKey = typeof params.apiKey === 'string' ? params.apiKey.trim() : '';
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+  };
+  if (normalizedApiKey) {
+    headers.Authorization = `Bearer ${normalizedApiKey}`;
+  }
   const response = await fetch(`${cleanUrl}/chat/completions`, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${params.apiKey}`,
-    },
+    headers,
     body: JSON.stringify({
       model: params.model,
       messages: [
@@ -1946,8 +1953,8 @@ export const generateStoryDraftVersionAdmin = async (
   });
   ensureStoryEditable(story.status);
 
-  if (!apiKey) {
-    throw new HttpError(400, 'No API key available for story generation');
+  if (provider === 'gemini' && !apiKey) {
+    throw new HttpError(400, 'No API key available for Gemini story generation');
   }
 
   const sourceLocale = story.sourceLocale || 'zh-CN';

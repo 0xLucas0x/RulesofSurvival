@@ -72,6 +72,19 @@ const resolveTurnJsonMaxAttempts = (): number => {
   return Math.max(1, Math.min(8, raw));
 };
 
+const resolveBoundedIntEnv = (
+  envName: string,
+  fallback: number,
+  min: number,
+  max: number,
+): number => {
+  const raw = Number.parseInt(process.env[envName] || '', 10);
+  if (!Number.isFinite(raw)) {
+    return fallback;
+  }
+  return Math.max(min, Math.min(max, raw));
+};
+
 const TURN_JSON_MAX_ATTEMPTS = resolveTurnJsonMaxAttempts();
 const OPENAI_RETRY_BASE_DELAY_MS = 800;
 const OPENAI_RETRY_MAX_DELAY_MS = 8000;
@@ -136,17 +149,22 @@ const requestOpenAIJsonCompletion = async ({
   temperature,
 }: {
   cleanUrl: string;
-  apiKey: string;
+  apiKey?: string;
   model: string;
   messages: OpenAIChatMessage[];
   temperature: number;
 }): Promise<string> => {
+  const normalizedApiKey = typeof apiKey === 'string' ? apiKey.trim() : '';
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+  };
+  if (normalizedApiKey) {
+    headers.Authorization = `Bearer ${normalizedApiKey}`;
+  }
+
   const response = await fetch(`${cleanUrl}/chat/completions`, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${apiKey}`,
-    },
+    headers,
     body: JSON.stringify({
       model,
       messages,
@@ -310,6 +328,8 @@ type DifficultyDirectorState = {
   lastActionType: ActionType;
   riskyRatio: number;
   consecutiveRisky: number;
+  investigateRatio: number;
+  consecutiveInvestigate: number;
   plotItemCount: number;
   clueItemCount: number;
   strictVerificationActions: number;
@@ -321,6 +341,8 @@ type DifficultyDirectorState = {
   hasRitualIntent: boolean;
   minEndingTurn: number;
   recentVerificationActions: number;
+  recentMoveActions: number;
+  recentItemActions: number;
 };
 
 type DifficultyDirectorInput = {
@@ -554,20 +576,62 @@ const hasVerificationChoice = (choices: Choice[]): boolean => {
   return choices.some((choice) => textIncludesAny(choice.text, VERIFY_KEYWORDS));
 };
 
-const buildVerificationChoice = (): Choice => {
+const resolveChoiceLocationAnchor = (locationName: string): string => {
+  const location = (locationName || '').trim();
+  if (!location) {
+    return '你所在的走廊';
+  }
+  return location.includes('崇山医院') ? location.replace('崇山医院 - ', '') : location;
+};
+
+const buildVerificationChoice = (params: { turnNumber: number; locationName: string }): Choice => {
+  const anchor = resolveChoiceLocationAnchor(params.locationName);
+  const variants = [
+    `先在${anchor}把守则与物证对齐，确认哪条警告值得信。`,
+    `回看${anchor}附近的记录与口供，确认下一步该信哪条线。`,
+    `贴着${anchor}复盘刚拿到的线索，先排除一条明显假指引。`,
+  ];
   return {
     id: 'verify',
-    text: '停下推进，先核对守则与证据冲突点，确认哪条规则仍然有效',
+    text: variants[params.turnNumber % variants.length],
     actionType: 'investigate',
   };
 };
 
-const buildVerificationItemChoice = (): Choice => {
+const buildVerificationItemChoice = (params: { turnNumber: number; locationName: string }): Choice => {
+  const anchor = resolveChoiceLocationAnchor(params.locationName);
+  const variants = [
+    `把手上的物证按时间顺序摊开，在${anchor}做一次交叉比对后再推进。`,
+    `用随身物件复核${anchor}门旁标记，确认哪条线索不是诱饵。`,
+    `先拿现有物证做一次回读，看看${anchor}这段是否被伪线索改写过。`,
+  ];
   return {
     id: 'verify_item',
-    text: '整理携带物证并交叉比对冲突条目，再决定下一步推进顺序',
+    text: variants[params.turnNumber % variants.length],
     actionType: 'item',
   };
+};
+
+const hasStabilizeChoice = (choices: Choice[]): boolean => {
+  return choices.some((choice) => textIncludesAny(choice.text, ['稳封', '稳定', '压低威胁', '锚点', '封缝']));
+};
+
+const buildStabilizeChoice = (params: { turnNumber: number; locationName: string }): Choice => {
+  const anchor = resolveChoiceLocationAnchor(params.locationName);
+  const variants = [
+    `先在${anchor}完成一次稳封操作，把躁动压住再决定是否冲刺。`,
+    `用关键物件在${anchor}执行封缝步骤，先换一口稳定窗口。`,
+    `先稳住${anchor}的封印节奏，再决定要不要冒险推进。`,
+  ];
+  return {
+    id: 'stabilize',
+    text: variants[params.turnNumber % variants.length],
+    actionType: 'item',
+  };
+};
+
+const buildLateBranchingHint = (): string => {
+  return '两股声音在走廊里拉扯你：一边催你立刻冲出去，一边逼你先把封缝压稳。再犹豫，医院会替你选一条更糟的路。';
 };
 
 const hasRescueAction = (text: string): boolean => {
@@ -581,15 +645,29 @@ const hasRescueActionInHistory = (state: DifficultyDirectorState): boolean => {
 const buildChongshanRescueChoices = (reasonCode: ChongshanFallReasonCode): Choice[] => {
   if (reasonCode === 'fall_rule_chain_break') {
     return [
-      { id: 'rescue_chain_1', text: '【补救链】立即回到核验点，补做“规则-物证-位置”三联校验。', actionType: 'investigate' },
-      { id: 'rescue_chain_2', text: '【补救链】用现有关键物证重新签注封印流程，再执行终结动作。', actionType: 'item' },
-      { id: 'rescue_chain_3', text: '短距后撤至安全位，先压低威胁再二次推进。', actionType: 'move' },
+      { id: 'rescue_chain_1', text: '沿回闪脚印退回核验点，把缺的那步证据链补齐。', actionType: 'investigate' },
+      { id: 'rescue_chain_2', text: '拿现有关键物件重做一次封缝执行，再尝试落终结动作。', actionType: 'item' },
+      { id: 'rescue_chain_3', text: '先后撤到低噪区稳住呼吸，再二次推进。', actionType: 'move' },
+    ];
+  }
+  if (reasonCode === 'fall_route_incomplete') {
+    return [
+      { id: 'rescue_route_1', text: '回到分岔门廊，对照墙上标记和手头证据，确认哪扇门是真路。', actionType: 'investigate' },
+      { id: 'rescue_route_2', text: '把关键物证接入门旁终端，试一次通道回读，逼出可走路线。', actionType: 'item' },
+      { id: 'rescue_route_3', text: '放弃眼前伪出口，转入东楼地下段重新定坐标。', actionType: 'move' },
+    ];
+  }
+  if (reasonCode === 'fall_unstable_seal') {
+    return [
+      { id: 'rescue_seal_1', text: '立刻折返控制桥重锁锚点，先把封印按住一拍。', actionType: 'item' },
+      { id: 'rescue_seal_2', text: '核对阀位与广播节奏，找出刚才让封印失稳的那一步。', actionType: 'investigate' },
+      { id: 'rescue_seal_3', text: '短撤到低噪区压低威胁，再回来执行收束。', actionType: 'move' },
     ];
   }
   return [
-    { id: 'rescue_conflict_1', text: '【补救冲突】停止高危操作，先核对冲突规则并撤销刚触发的禁忌步骤。', actionType: 'investigate' },
-    { id: 'rescue_conflict_2', text: '【补救冲突】提交当前证据给校验节点，重建合法执行链。', actionType: 'item' },
-    { id: 'rescue_conflict_3', text: '快速脱离冲突区，绕行至东楼地下段重新对位。', actionType: 'move' },
+    { id: 'rescue_conflict_1', text: '先停下高危动作，对照冲突规则，撤销刚触发的禁忌步骤。', actionType: 'investigate' },
+    { id: 'rescue_conflict_2', text: '把当前证据送去回读节点，重建这段执行链。', actionType: 'item' },
+    { id: 'rescue_conflict_3', text: '快速脱离冲突区，绕行到东楼地下段重新对位。', actionType: 'move' },
   ];
 };
 
@@ -601,13 +679,13 @@ const buildDeepZoneChoice = (deepZoneProgress: number): Choice => {
   if (deepZoneProgress <= 1) {
     return {
       id: 'deep_zone_push',
-      text: '立即转入东楼地下段，定位地下二层入口并建立封印坐标。',
+      text: '立刻转入东楼地下段，先确认地下二层入口的真实位置。',
       actionType: 'move',
     };
   }
   return {
     id: 'deep_zone_push',
-    text: '继续下潜至地下二层核心区，完成裂缝锚点与封印位的最终确认。',
+    text: '继续下潜到地下二层核心区，把裂缝锚点位置最后确认一遍。',
     actionType: 'investigate',
   };
 };
@@ -621,10 +699,12 @@ const buildEndgameChoices = (params: {
   locationName: string;
 }): Choice[] => {
   if (isChongshanStory(params.storyTitle, params.storySlug)) {
+    const anchor = resolveChoiceLocationAnchor(params.locationName);
     return [
-      { id: 'end_1', text: '冲向屋顶出口，赌一次彻底脱离医院封锁', actionType: 'risky' },
-      { id: 'end_2', text: '携带关键物件下潜裂缝核心，执行最后封印', actionType: 'risky' },
-      { id: 'end_3', text: '回到赵医生处完成最终核验并立刻执行结果', actionType: 'investigate' },
+      { id: 'end_1', text: `沿着${anchor}再推进一步，确认真正可走的通道。`, actionType: 'move' },
+      { id: 'end_2', text: `先在${anchor}做最后一次守则-证据核对，避免走错终局分叉。`, actionType: 'investigate' },
+      { id: 'end_3', text: `用关键物件在${anchor}执行封缝步骤，先稳住再决定撤离。`, actionType: 'item' },
+      { id: 'end_4', text: '趁红衣护士换位时硬闯分岔口，赌一次速通；失手会被当场反扑。', actionType: 'risky' },
     ];
   }
 
@@ -652,9 +732,66 @@ const buildEndgameChoices = (params: {
 
   return [
     { id: 'end_1', text: `冲向${escapeTarget}，赌一次彻底脱离当前封锁`, actionType: 'risky' },
-    { id: 'end_2', text: `携带关键物件前往${coreTarget}，执行最后闭环`, actionType: 'risky' },
-    { id: 'end_3', text: `先核对${verifyTarget}与现行规则冲突，再执行最终决断`, actionType: 'investigate' },
+    { id: 'end_2', text: `携带关键物件前往${coreTarget}，把最后一道封缝做完`, actionType: 'risky' },
+    { id: 'end_3', text: `先核对${verifyTarget}与现行规则冲突，再落下最终决断`, actionType: 'investigate' },
   ];
+};
+
+const pickChoiceByKeywords = (choices: Choice[], keywords: string[]): Choice | null => {
+  return choices.find((choice) => textIncludesAny(choice.text, keywords)) || null;
+};
+
+const rebalanceLatePhaseChoices = (params: {
+  choices: Choice[];
+  locationName: string;
+  turnNumber: number;
+}): Choice[] => {
+  const { choices, locationName, turnNumber } = params;
+  const anchor = resolveChoiceLocationAnchor(locationName);
+  const riskyConsequence = turnNumber % 2 === 0 ? '失手会被当场反扑' : '失手会被直接拖入裂缝';
+  const movePool = choices.filter((choice) => choice.actionType === 'move');
+  const investigatePool = choices.filter((choice) => choice.actionType === 'investigate');
+  const itemPool = choices.filter((choice) => choice.actionType === 'item');
+  const riskyPool = choices.filter((choice) => choice.actionType === 'risky');
+
+  const advanceChoice = pickChoiceByKeywords(movePool, ['前往', '走', '转入', '下潜', '入口', '通道', '楼梯', '东楼', '地下'])
+    || movePool[0]
+    || {
+      id: 'late_move',
+      text: `沿着${anchor}继续前压，确认真正可走的通道。`,
+      actionType: 'move' as const,
+    };
+  const verifyChoice = pickChoiceByKeywords(investigatePool, ['核对', '比对', '验证', '确认', '守则', '证据', '记录'])
+    || investigatePool[0]
+    || {
+      id: 'late_verify',
+      text: `先在${anchor}把守则与物证对齐，确认哪条警告值得信。`,
+      actionType: 'investigate' as const,
+    };
+  const executeChoice = pickChoiceByKeywords(itemPool, ['钥匙', '门禁', '封缝', '重锁', '阀位', '锚点', '终端', '执行'])
+    || itemPool[0]
+    || {
+      id: 'late_execute',
+      text: `用关键物件在${anchor}执行一次封缝步骤，先稳住再冲刺。`,
+      actionType: 'item' as const,
+    };
+  const riskyChoice = pickChoiceByKeywords(riskyPool, ['冒险', '硬闯', '赌', '速通', '失手', '反扑'])
+    || riskyPool[0]
+    || {
+      id: 'late_risky',
+      text: `趁红衣护士换位时硬闯分岔口，赌一次速通；${riskyConsequence}。`,
+      actionType: 'risky' as const,
+    };
+
+  const picked: Choice[] = [];
+  const usedText = new Set<string>();
+  for (const choice of [advanceChoice, verifyChoice, executeChoice, riskyChoice]) {
+    if (!usedText.has(choice.text)) {
+      usedText.add(choice.text);
+      picked.push(choice);
+    }
+  }
+  return picked;
 };
 
 type EndingGateProfile = {
@@ -693,6 +830,15 @@ type ChongshanFallReasonContext = {
   isModelEnding: boolean;
 };
 
+type ChongshanFallHintContext = {
+  directorState: DifficultyDirectorState;
+  route: ChongshanRoute;
+  hasEndingIntent: boolean;
+  gate: EndingGateProfile;
+  turnNumber: number;
+  hardEndingTurn: number;
+};
+
 const CHONGSHAN_SEAL_ROUTE_KEYWORDS = ['下潜', '裂缝', '封印', '核心', '祭坛', '地下二层', '重置'];
 const CHONGSHAN_VERIFY_ROUTE_KEYWORDS = ['赵医生', '核验', '核对', '交叉验证', '执行结果', '比对'];
 const CHONGSHAN_ESCAPE_ROUTE_KEYWORDS = ['屋顶', '出口', '离开医院', '撤离医院', '冲出医院', '检修通道', '安全通道', '外部'];
@@ -720,12 +866,32 @@ const CHONGSHAN_EARLY_FATAL_ACTION_KEYWORDS = [
   '跟随红衣',
   '拒绝核验',
 ];
-const CHONGSHAN_MIN_VICTORY_TURN = 10;
-const CHONGSHAN_PROGRESS_HINT_START_TURN = 8;
-const CHONGSHAN_PROGRESS_HINT_END_TURN = 10;
-const CHONGSHAN_DEEP_ZONE_PUSH_TURN = 8;
-const CHONGSHAN_RESCUE_WINDOW_TURNS = 1;
-const CHONGSHAN_RESCUE_ACTION_KEYWORDS = ['【补救链】', '【补救冲突】'];
+const CHONGSHAN_MIN_VICTORY_TURN = resolveBoundedIntEnv('CHONGSHAN_MIN_VICTORY_TURN', 10, 8, 14);
+const CHONGSHAN_PROGRESS_HINT_START_TURN = resolveBoundedIntEnv('CHONGSHAN_PROGRESS_HINT_START_TURN', 7, 4, 12);
+const CHONGSHAN_PROGRESS_HINT_END_TURN = resolveBoundedIntEnv('CHONGSHAN_PROGRESS_HINT_END_TURN', 10, 6, 14);
+const CHONGSHAN_DEEP_ZONE_PUSH_TURN = resolveBoundedIntEnv('CHONGSHAN_DEEP_ZONE_PUSH_TURN', 8, 5, 12);
+const CHONGSHAN_RESCUE_WINDOW_TURNS = resolveBoundedIntEnv('CHONGSHAN_RESCUE_WINDOW_TURNS', 2, 1, 4);
+const CHONGSHAN_UNSTABLE_RESCUE_PREEMPT_TURN_OFFSET = resolveBoundedIntEnv('CHONGSHAN_UNSTABLE_RESCUE_PREEMPT_TURN_OFFSET', 1, 0, 3);
+const CHONGSHAN_SAFE_CHOICE_ENFORCE_WINDOW = resolveBoundedIntEnv('CHONGSHAN_SAFE_CHOICE_ENFORCE_WINDOW', 4, 2, 6);
+const CHONGSHAN_ENDING_ACTION_WINDOW_TURNS = resolveBoundedIntEnv('CHONGSHAN_ENDING_ACTION_WINDOW_TURNS', 6, 4, 10);
+const CHONGSHAN_ENDING_MIN_MOVE_ACTIONS = resolveBoundedIntEnv('CHONGSHAN_ENDING_MIN_MOVE_ACTIONS', 1, 0, 3);
+const CHONGSHAN_ENDING_MIN_ITEM_ACTIONS = resolveBoundedIntEnv('CHONGSHAN_ENDING_MIN_ITEM_ACTIONS', 1, 0, 3);
+const CHONGSHAN_INVESTIGATE_STREAK_SOFT_CAP = resolveBoundedIntEnv('CHONGSHAN_INVESTIGATE_STREAK_SOFT_CAP', 4, 2, 8);
+const CHONGSHAN_INVESTIGATE_VERIFY_DECAY_STEP = resolveBoundedIntEnv('CHONGSHAN_INVESTIGATE_VERIFY_DECAY_STEP', 2, 1, 4);
+const CHONGSHAN_INVESTIGATE_THREAT_STEP = resolveBoundedIntEnv('CHONGSHAN_INVESTIGATE_THREAT_STEP', 2, 1, 4);
+const CHONGSHAN_PROGRESS_HINT_NUMERIC = ['1', 'true', 'yes', 'on'].includes(
+  (process.env.CHONGSHAN_PROGRESS_HINT_NUMERIC || '').trim().toLowerCase(),
+);
+const CHONGSHAN_RESCUE_ACTION_KEYWORDS = [
+  '证据链补齐',
+  '封缝执行',
+  '分岔门廊',
+  '门旁终端',
+  '控制桥',
+  '禁忌步骤',
+  '低噪区',
+  '重定坐标',
+];
 const CHONGSHAN_DEFEAT_REPLACEMENTS: Array<{ pattern: RegExp; replacement: string }> = [
   { pattern: /你活下来了/g, replacement: '你一度以为自己活下来了' },
   { pattern: /活了下来/g, replacement: '勉强维持了残存意识' },
@@ -812,15 +978,15 @@ const shouldAllowChongshanPrematureFailure = (params: {
 
 const buildChongshanEndingHint = (tier: Exclude<ChongshanEndingTier, null>): string => {
   if (tier === 'perfect') {
-    return '结局判定：完美结局「封印重启」——你完成了全部校验闭环，裂缝被稳定回卷。';
+    return '完美结局「封印重启」：你把最后一枚环扣上，裂缝像潮水一样倒卷回去，东楼第一次安静下来。';
   }
   if (tier === 'normal') {
-    return '结局判定：普通结局「残缺封印」——主封印成立，但你的记忆与身份已被严重侵蚀。';
+    return '普通结局「残缺封印」：主封印勉强立住了，你活了下来，却丢失了自己的一部分。';
   }
   if (tier === 'pass') {
-    return '结局判定：及格结局「带伤逃离」——你活着离开了崇山医院，但封印仍在缓慢衰减。';
+    return '及格结局「带伤逃离」：你带着伤离开了医院，身后那道封印仍在缓慢衰减。';
   }
-  return '结局判定：堕入结局「红衣轮值」——校验链断裂，你成为下一轮守门人。';
+  return '堕入结局「红衣轮值」：校验链断在你手里，你被留在这条轮值线上。';
 };
 
 const resolveChongshanEndingTier = (params: {
@@ -838,6 +1004,8 @@ const resolveChongshanEndingTier = (params: {
   const reachedVictoryFloor = turnNumber >= CHONGSHAN_MIN_VICTORY_TURN;
   const reachedEndingWindow = turnNumber >= directorState.minEndingTurn;
   const canAwardVictory = reachedVictoryFloor && reachedEndingWindow && hasEndingIntent;
+  const hasStructuredActionMix = directorState.recentMoveActions >= CHONGSHAN_ENDING_MIN_MOVE_ACTIONS
+    && directorState.recentItemActions >= CHONGSHAN_ENDING_MIN_ITEM_ACTIONS;
   const meetsPerfect = route === 'seal'
     && directorState.plotItemCount >= 4
     && directorState.strictVerificationActions >= 5
@@ -869,12 +1037,13 @@ const resolveChongshanEndingTier = (params: {
     && directorState.threatClock <= 3;
 
   const meetsAnyVictoryTier = meetsPerfect || meetsNormalSeal || meetsNormalVerify || meetsPassEscape;
-  if (canAwardVictory && meetsPerfect) return 'perfect';
-  if (canAwardVictory && (meetsNormalSeal || meetsNormalVerify)) return 'normal';
-  if (canAwardVictory && meetsPassEscape) return 'pass';
+  const meetsStructuredVictory = meetsAnyVictoryTier && hasStructuredActionMix;
+  if (canAwardVictory && hasStructuredActionMix && meetsPerfect) return 'perfect';
+  if (canAwardVictory && hasStructuredActionMix && (meetsNormalSeal || meetsNormalVerify)) return 'normal';
+  if (canAwardVictory && hasStructuredActionMix && meetsPassEscape) return 'pass';
 
   const mustResolveNow = turnNumber >= hardEndingTurn || projectedSanity <= 0 || isModelEnding;
-  if ((reachedEndingWindow && hasEndingIntent && !meetsAnyVictoryTier) || mustResolveNow) {
+  if ((reachedEndingWindow && hasEndingIntent && !meetsStructuredVictory) || mustResolveNow) {
     return 'fall';
   }
 
@@ -890,32 +1059,42 @@ const buildChongshanGapLabels = (params: {
 
   const verifyGap = gate.trueVerifyActions - directorState.strictVerificationActions;
   if (verifyGap > 0) {
-    gaps.push(`核验动作还差${verifyGap}次`);
+    gaps.push(verifyGap >= 3 ? '你手里的证词与痕迹还没连成一条能站住的路' : '最后那段证据回路还没扣上');
   }
 
   const recentVerifyGap = gate.trueRecentVerifyActions - directorState.recentVerificationActions;
   if (recentVerifyGap > 0) {
-    gaps.push(`近4回合核验至少补${recentVerifyGap}次`);
+    gaps.push('最近几步太急，关键细节还没被反复坐实');
+  }
+
+  const moveGap = CHONGSHAN_ENDING_MIN_MOVE_ACTIONS - directorState.recentMoveActions;
+  if (moveGap > 0) {
+    gaps.push('你还没有换过关键落脚点，路径真假仍混在一起');
+  }
+
+  const itemGap = CHONGSHAN_ENDING_MIN_ITEM_ACTIONS - directorState.recentItemActions;
+  if (itemGap > 0) {
+    gaps.push('还缺一次真正的执行动作，封缝仍停在纸面上');
   }
 
   const plotItemGap = gate.truePlotItems - directorState.plotItemCount;
   if (plotItemGap > 0) {
-    gaps.push(`关键物证还差${plotItemGap}件`);
+    gaps.push(plotItemGap >= 3 ? '线索像被人故意拆散，关键物证还不够成形' : '还差最后一件能压住局面的物证');
   }
 
   const deepZoneGap = gate.trueDeepZone - directorState.deepZoneProgress;
   if (deepZoneGap > 0) {
-    gaps.push(`深区推进还差${deepZoneGap}级`);
+    gaps.push(deepZoneGap >= 2 ? '深区坐标还在漂，像被暗处不断改写' : '深区位置只差最后一次对位');
   }
 
   const sealGap = gate.trueSealStability - directorState.sealStability;
   if (sealGap > 0) {
-    gaps.push(`封印稳定度至少再提升${sealGap}`);
+    gaps.push(sealGap >= 2 ? '封印还在抖，像随时会被反噬掀开' : '封印只差一口气才能稳住');
   }
 
   const threatDrop = directorState.threatClock - gate.trueThreatMax;
   if (threatDrop > 0) {
-    gaps.push(`威胁时钟需再压低${threatDrop}格`);
+    gaps.push(threatDrop >= 2 ? '红衣的气息压得太近，走廊随时会换路' : '威胁刚越线，再慢一步就会被逼进岔路');
   }
 
   return gaps;
@@ -926,22 +1105,28 @@ const buildChongshanProgressAdvisory = (params: {
   gate: EndingGateProfile;
 }): string => {
   const { directorState, gate } = params;
+  if (directorState.recentMoveActions < CHONGSHAN_ENDING_MIN_MOVE_ACTIONS) {
+    return '先换一个落脚点，再确认通道有没有变形。';
+  }
+  if (directorState.recentItemActions < CHONGSHAN_ENDING_MIN_ITEM_ACTIONS) {
+    return '先做一次封缝执行，再决定要不要冲。';
+  }
   if (directorState.strictVerificationActions < gate.trueVerifyActions) {
-    return '优先补核验动作，完成“规则-物证-位置”交叉验证。';
+    return '把规则、物证和位置再对一轮。';
   }
   if (directorState.deepZoneProgress < gate.trueDeepZone) {
-    return '优先推进东楼/地下二层，完成深区定位。';
+    return '先下到东楼地下段，把深区坐标钉死。';
   }
   if (directorState.plotItemCount < gate.truePlotItems) {
-    return '优先补齐关键物证，避免终章缺口。';
+    return '先补齐关键物证，再谈收束。';
   }
   if (directorState.sealStability < gate.trueSealStability) {
-    return '优先做稳封步骤，先稳住封印再尝试终结。';
+    return '先稳住封印，再决定冲刺还是撤离。';
   }
   if (directorState.threatClock > gate.trueThreatMax) {
-    return '优先降低威胁时钟，再执行高风险动作。';
+    return '先压低追势，再碰高风险动作。';
   }
-  return '闭环条件接近完成，可尝试最终核验并收束结局。';
+  return '你可以准备最后一次对位。';
 };
 
 const buildChongshanClosureScore = (params: {
@@ -1001,16 +1186,23 @@ const buildChongshanProgressHint = (params: {
   const closureScore = buildChongshanClosureScore({ directorState, gate });
   const riskLabel = buildChongshanRiskLabel({ directorState, gate });
   const advisory = buildChongshanProgressAdvisory({ directorState, gate });
-  const summaryLine = `【阶段校验】核验:${directorState.strictVerificationActions}/${gate.trueVerifyActions} | 物证:${directorState.plotItemCount}/${gate.truePlotItems} | 深区:${directorState.deepZoneProgress}/${gate.trueDeepZone} | 封印稳定:${directorState.sealStability} | 威胁:${directorState.threatClock}/6`;
-  const panelLine = `【闭环面板】闭环分:${closureScore}/100 | 风险:${riskLabel} | 剩余窗口:${remainTurns}回合`;
-  const gapLine = gaps.length
-    ? `【缺失项】${gaps.join('；')}`
-    : '【缺失项】主闭环条件基本齐备，下一步优先执行最终核验并收束结局。';
-  const advisoryLine = `【下一步】${advisory}`;
+  const pressureLine = CHONGSHAN_PROGRESS_HINT_NUMERIC
+    ? `局势：核验${directorState.strictVerificationActions}/${gate.trueVerifyActions}，物证${directorState.plotItemCount}/${gate.truePlotItems}，深区${directorState.deepZoneProgress}/${gate.trueDeepZone}，稳${directorState.sealStability}，威胁${directorState.threatClock}/6。`
+    : closureScore >= 70
+      ? '回声暂时平稳，但错门还在移动。'
+      : closureScore >= 45
+        ? '低语在换位，这条路还能走，但容错很窄。'
+        : '指示开始互相矛盾，像有东西在把你引向错门。';
+  const focusLine = gaps.length
+    ? `先稳住这一环：${gaps[0]}。`
+    : '主链基本咬合，接下来就是最后一次对位。';
+  const directiveLine = `现在先做这一步：${advisory}`;
   const urgencyLine = isNearEndingWindow
-    ? `【终章提醒】剩余可逆窗口约${remainTurns}回合，请立即补齐缺口后再尝试终结动作。`
-    : `【节奏建议】当前回合数${turnNumber}/${maxTurns}，先补齐缺口再冲终章，成功率更高。`;
-  return `${summaryLine}\n${panelLine}\n${gapLine}\n${advisoryLine}\n${urgencyLine}`;
+    ? `红灯在加速熄灭，再拖${remainTurns}步，门会替你决定。`
+    : '';
+  return urgencyLine
+    ? `${pressureLine}\n${focusLine}\n${directiveLine}\n${urgencyLine}`
+    : `${pressureLine}\n${focusLine}\n${directiveLine}`;
 };
 
 const inferChongshanFallReasonCode = (params: ChongshanFallReasonContext): ChongshanFallReasonCode => {
@@ -1057,36 +1249,140 @@ const inferChongshanFallReasonCode = (params: ChongshanFallReasonContext): Chong
   return 'fall_route_incomplete';
 };
 
-const buildChongshanFallEndingHint = (reasonCode: ChongshanFallReasonCode): string => {
-  if (reasonCode === 'fall_unstable_seal') {
-    return '结局判定：堕入结局「裂隙反涌」——封印阵列失稳，裂缝回涌吞没了你的撤离路径。';
-  }
-  if (reasonCode === 'fall_rule_chain_break') {
-    return '结局判定：堕入结局「断链收束」——你抵达终局节点，却因关键闭环缺口被强制判入失败线。';
-  }
-  if (reasonCode === 'fall_rule_conflict') {
-    return '结局判定：堕入结局「伪证闭环」——你用未核验规则强行收束流程，封印在最后一刻发生逆向反噬。';
-  }
-  return '结局判定：堕入结局「盲区回廊」——你在伪线索与迟滞行动中错过终章窗口，最终被医院重写为下一轮巡查样本。';
+const isHighProgressRecoverableState = (params: {
+  directorState: DifficultyDirectorState;
+  gate: EndingGateProfile;
+}): boolean => {
+  const { directorState, gate } = params;
+  const verifyReady = directorState.strictVerificationActions >= Math.max(3, gate.trueVerifyActions - 1);
+  const recentVerifyReady = directorState.recentVerificationActions >= Math.max(1, gate.trueRecentVerifyActions);
+  const itemReady = directorState.plotItemCount >= Math.max(2, gate.truePlotItems - 1);
+  const deepZoneReady = directorState.deepZoneProgress >= Math.max(1, gate.trueDeepZone - 1);
+  const sealRecoverable = directorState.sealStability >= Math.max(-1, gate.trueSealStability - 2);
+  return verifyReady && recentVerifyReady && itemReady && deepZoneReady && sealRecoverable;
 };
 
-const buildChongshanFallCauseHint = (reasonCode: ChongshanFallReasonCode): string => {
-  if (reasonCode === 'fall_sanity_depleted') {
-    return '终局原因：理智值归零，污染在你完成闭环前先一步吞没了你。';
+const isNearMissRouteOrChain = (params: {
+  reasonCode: ChongshanFallReasonCode;
+  directorState: DifficultyDirectorState;
+  gate: EndingGateProfile;
+}): boolean => {
+  const { reasonCode, directorState, gate } = params;
+  if (reasonCode !== 'fall_route_incomplete' && reasonCode !== 'fall_rule_chain_break') {
+    return false;
   }
-  if (reasonCode === 'fall_deadline_exhausted') {
-    return '终局原因：终章窗口耗尽，你仍未补齐闭环步骤，失败线已被锁定。';
+  const verifyGap = Math.max(0, gate.trueVerifyActions - directorState.strictVerificationActions);
+  const recentVerifyGap = Math.max(0, gate.trueRecentVerifyActions - directorState.recentVerificationActions);
+  const itemGap = Math.max(0, gate.truePlotItems - directorState.plotItemCount);
+  const deepGap = Math.max(0, gate.trueDeepZone - directorState.deepZoneProgress);
+  if (reasonCode === 'fall_rule_chain_break') {
+    return verifyGap <= 1 || recentVerifyGap <= 1;
+  }
+  return verifyGap <= 1 || itemGap <= 1 || deepGap <= 1;
+};
+
+const shouldOpenHighProgressSoftLanding = (params: {
+  reasonCode: ChongshanFallReasonCode;
+  projectedSanity: number;
+  projectedRulesCount: number;
+  projectedInventoryCount: number;
+  rescueAlreadyUsed: boolean;
+  isOvertime: boolean;
+  turnNumber: number;
+  hardEndingTurn: number;
+}): boolean => {
+  const {
+    reasonCode,
+    projectedSanity,
+    projectedRulesCount,
+    projectedInventoryCount,
+    rescueAlreadyUsed,
+    isOvertime,
+    turnNumber,
+    hardEndingTurn,
+  } = params;
+  if (reasonCode !== 'fall_route_incomplete' && reasonCode !== 'fall_rule_chain_break') {
+    return false;
+  }
+  if (rescueAlreadyUsed || isOvertime || projectedSanity <= 0) {
+    return false;
+  }
+  if (turnNumber >= hardEndingTurn) {
+    return false;
+  }
+  const hasHighProgress = projectedSanity >= 20 && (projectedRulesCount >= 9 || projectedInventoryCount >= 9);
+  return hasHighProgress;
+};
+
+const inferChongshanRouteIncompleteCause = (context: ChongshanFallHintContext): string => {
+  const { directorState, route, hasEndingIntent, gate, turnNumber, hardEndingTurn } = context;
+
+  if (!hasEndingIntent) {
+    return '你一路搜寻，却始终没有落下真正的收束动作，路线在犹豫里散开了。';
+  }
+  if (route === 'unknown') {
+    return '最后一步没落在主线上，你在分岔前失了方向。';
+  }
+  if (directorState.recentMoveActions < CHONGSHAN_ENDING_MIN_MOVE_ACTIONS || directorState.recentItemActions < CHONGSHAN_ENDING_MIN_ITEM_ACTIONS) {
+    return '你把线索查得很细，却少了必要的位移与执行，路始终没真正落地。';
+  }
+  if (directorState.strictVerificationActions < gate.trueVerifyActions) {
+    return '关键核验还没落稳，你最后一步像踩在空台阶，路当场断开。';
+  }
+  if (directorState.recentVerificationActions < gate.trueRecentVerifyActions) {
+    return '临近收束时你少了一次回读，最后这道门始终没对上。';
+  }
+  if (directorState.plotItemCount < gate.truePlotItems) {
+    return '关键物证还没聚齐，证据链断在半途，收束信号没能亮起。';
+  }
+  if (directorState.deepZoneProgress < gate.trueDeepZone) {
+    return '你在核心坐标尚未钉死前就强行收束，路径随即滑脱。';
+  }
+  if (directorState.threatClock > gate.trueThreatMax) {
+    return '红衣的压迫越过阈值，走廊被重新改写，最终通道没能稳住。';
+  }
+  if (turnNumber >= hardEndingTurn - 1) {
+    return '最后那道可逆缝隙在你补完复核前先一步合上。';
+  }
+  return '你的最终行动没能织成有效路线，闭环条件不足，门在你面前关上了。';
+};
+
+const buildChongshanFallEndingHint = (reasonCode: ChongshanFallReasonCode): string => {
+  if (reasonCode === 'fall_unstable_seal') {
+    return '堕入结局「裂隙反涌」：封印阵列失稳，裂缝倒卷回来，连撤离路也被吞没。';
   }
   if (reasonCode === 'fall_rule_chain_break') {
-    return '终局原因：校验链断裂，关键核验步骤不足，导致终局判定直接滑向堕入线。';
-  }
-  if (reasonCode === 'fall_unstable_seal') {
-    return '终局原因：封印稳定度不足且威胁时钟过高，当前路线已无可逆窗口。';
+    return '堕入结局「断链收束」：你到了终局门前，却因闭环缺口被硬生生拽回黑暗。';
   }
   if (reasonCode === 'fall_rule_conflict') {
-    return '终局原因：你触发了高危规则冲突，尽管理智尚存，结局仍被强制判死。';
+    return '堕入结局「伪证闭环」：你把未核验的规则当成真相，封印在最后一瞬反咬了你。';
   }
-  return '终局原因：你的最终行动未形成有效路线，闭环条件不足，结局坠入失败线。';
+  return '堕入结局「盲区回廊」：你在伪线索里多停了一步，终章窗口合上，你被医院留在这条轮回里。';
+};
+
+const buildChongshanFallCauseHint = (
+  reasonCode: ChongshanFallReasonCode,
+  context?: ChongshanFallHintContext,
+): string => {
+  if (reasonCode === 'fall_sanity_depleted') {
+    return '你的理智先一步见底，污染在闭环完成前就把你吞没。';
+  }
+  if (reasonCode === 'fall_deadline_exhausted') {
+    return '你赶到时，最后一道门已经合拢，终章窗口没再给你第二次机会。';
+  }
+  if (reasonCode === 'fall_rule_chain_break') {
+    return '校验链在关键处断了，路径没能托住你，直接滑向堕入线。';
+  }
+  if (reasonCode === 'fall_unstable_seal') {
+    return '封印始终在抖，外层压迫又逼得太近，眼前这条路被反向吞回。';
+  }
+  if (reasonCode === 'fall_rule_conflict') {
+    return '你踩中了高危规则冲突，哪怕意识还清醒，路也被当场掐断。';
+  }
+  if (context) {
+    return inferChongshanRouteIncompleteCause(context);
+  }
+  return '你的最终行动没能织成有效路线，闭环条件不足，门最终没有为你打开。';
 };
 
 const stripTerminalHints = (narrative: string): string => {
@@ -1106,6 +1402,66 @@ const sanitizeChongshanDefeatNarrative = (narrative: string): string => {
   return next;
 };
 
+const softenMechanicalNarrativeTone = (narrative: string): string => {
+  let next = (narrative || '').trim();
+  const rewrites: Array<{ pattern: RegExp; replacement: string }> = [
+    {
+      pattern: /你已到终局窗口[:：]?[^。\n]*。?/g,
+      replacement: '空气忽然发紧，你知道接下来的决定会把路彻底分开。',
+    },
+    {
+      pattern: /终章冲刺已开始[:：]?[^。\n]*。?/g,
+      replacement: '走廊尽头的光像被谁拧紧，真正的收束时刻逼近了。',
+    },
+    {
+      pattern: /请在剩余\d+回合内做出最终抉择，?故事必须收束到胜利或死亡。?/g,
+      replacement: '再迟疑一步，医院会替你写下结局。',
+    },
+    {
+      pattern: /这一步将直接决定你是活着离开、被伪通道截获，还是尝试触发更高难度的封缄结局。?/g,
+      replacement: '这一步会决定你是带着伤口离开，还是被伪通道留下。',
+    },
+    {
+      pattern: /你必须在这之前做出最终抉择。?/g,
+      replacement: '再晚一步，门会替你做决定。',
+    },
+    {
+      pattern: /终章保护：系统已注入稳封校验选项，建议先稳住封印再决定冲刺路线。?/g,
+      replacement: '风向明显在逼你冒进，但更稳的路仍是先把封印压住。',
+    },
+    {
+      pattern: /【阶段校验】[^\n]*/g,
+      replacement: '',
+    },
+    {
+      pattern: /【闭环面板】[^\n]*/g,
+      replacement: '',
+    },
+    {
+      pattern: /【缺失项】/g,
+      replacement: '',
+    },
+    {
+      pattern: /【下一步】/g,
+      replacement: '',
+    },
+    {
+      pattern: /【终章提醒】[^\n]*/g,
+      replacement: '',
+    },
+    {
+      pattern: /【节奏建议】[^\n]*/g,
+      replacement: '',
+    },
+  ];
+
+  for (const { pattern, replacement } of rewrites) {
+    next = next.replace(pattern, replacement);
+  }
+
+  return next.replace(/\n{3,}/g, '\n\n').trim();
+};
+
 const inferChongshanVictoryTierFromNarrative = (narrative: string): Exclude<ChongshanEndingTier, 'fall' | null> => {
   if (narrative.includes('完美结局')) return 'perfect';
   if (narrative.includes('及格结局')) return 'pass';
@@ -1118,23 +1474,24 @@ const normalizeChongshanTerminalNarrative = (params: {
   isVictory: boolean;
   victoryTier?: Exclude<ChongshanEndingTier, 'fall' | null> | null;
   fallReasonCode?: ChongshanFallReasonCode | null;
+  fallReasonContext?: ChongshanFallHintContext | null;
 }): string => {
   const { isGameOver, isVictory } = params;
 
   if (!isGameOver) {
-    return stripTerminalHints(params.narrative);
+    return softenMechanicalNarrativeTone(stripTerminalHints(params.narrative));
   }
 
-  const base = stripTerminalHints(params.narrative);
+  const base = softenMechanicalNarrativeTone(stripTerminalHints(params.narrative));
   if (isVictory) {
     const victoryTier = params.victoryTier || inferChongshanVictoryTierFromNarrative(base);
     return appendNarrativeHint(base, buildChongshanEndingHint(victoryTier));
   }
 
   const fallReason = params.fallReasonCode || 'fall_route_incomplete';
-  const sanitized = sanitizeChongshanDefeatNarrative(base);
+  const sanitized = softenMechanicalNarrativeTone(sanitizeChongshanDefeatNarrative(base));
   const withEnding = appendNarrativeHint(sanitized, buildChongshanFallEndingHint(fallReason));
-  return appendNarrativeHint(withEnding, buildChongshanFallCauseHint(fallReason));
+  return appendNarrativeHint(withEnding, buildChongshanFallCauseHint(fallReason, params.fallReasonContext || undefined));
 };
 
 const appendNarrativeHint = (narrative: string, hint: string): string => {
@@ -1244,21 +1601,32 @@ const analyzeDifficultyDirectorState = (
   storyTitle?: string | null,
   storySlug?: string | null,
 ): DifficultyDirectorState => {
+  const isChongshan = isChongshanStory(storyTitle, storySlug);
   const actionRecords = parseChoiceRecordsFromHistory(history);
   const actionTypes = actionRecords.map((record) => record.actionType);
   const lastActionType = actionTypes[actionTypes.length - 1] || 'investigate';
   const riskyCount = actionTypes.filter((type) => type === 'risky').length;
+  const investigateCount = actionTypes.filter((type) => type === 'investigate').length;
   const consecutiveRisky = countTrailingAction(actionTypes, 'risky');
+  const consecutiveInvestigate = countTrailingAction(actionTypes, 'investigate');
   const riskyRatio = actionTypes.length ? riskyCount / actionTypes.length : 0;
+  const investigateRatio = actionTypes.length ? investigateCount / actionTypes.length : 0;
 
   const plotItemKeywords = buildPlotItemKeywords(storyTitle, storySlug);
   const plotItemCount = inventory.filter((item) => looksLikePlotItem(item, plotItemKeywords)).length;
   const clueItemCount = inventory.filter((item) => item.type === 'document' || item.type === 'photo').length;
 
-  const strictVerificationActions = actionRecords.filter((record) => {
+  const strictVerificationActionsRaw = actionRecords.filter((record) => {
     const verifyText = textIncludesAny(record.text, VERIFY_KEYWORDS);
     return verifyText && (record.actionType === 'investigate' || record.actionType === 'item');
   }).length + (textIncludesAny(currentAction, VERIFY_KEYWORDS) ? 1 : 0);
+  const investigateOverload = isChongshan
+    ? Math.max(0, consecutiveInvestigate - CHONGSHAN_INVESTIGATE_STREAK_SOFT_CAP)
+    : 0;
+  const verificationDecay = investigateOverload > 0
+    ? Math.ceil(investigateOverload / CHONGSHAN_INVESTIGATE_VERIFY_DECAY_STEP)
+    : 0;
+  const strictVerificationActions = Math.max(0, strictVerificationActionsRaw - verificationDecay);
   const ruleVerificationProgress = strictVerificationActions >= 5 ? 3 : strictVerificationActions >= 3 ? 2 : strictVerificationActions >= 1 ? 1 : 0;
 
   const deepZoneHits = history.filter((line) => textIncludesAny(line, DEEP_ZONE_KEYWORDS)).length;
@@ -1267,16 +1635,22 @@ const analyzeDifficultyDirectorState = (
   const hasExitIntent = textIncludesAny(currentAction, EXIT_KEYWORDS) || history.slice(-3).some((line) => textIncludesAny(line, EXIT_KEYWORDS));
   const hasRitualIntent = textIncludesAny(currentAction, RITUAL_KEYWORDS) || history.slice(-3).some((line) => textIncludesAny(line, RITUAL_KEYWORDS));
   const sanityPressure = currentSanity <= 50 ? (currentSanity <= 30 ? 2 : 1) : 0;
+  const investigatePressure = investigateOverload > 0
+    ? Math.ceil(investigateOverload / CHONGSHAN_INVESTIGATE_THREAT_STEP)
+    : 0;
   const threatClock = clamp(
-    Math.floor(turnNumber / 3) + consecutiveRisky + Math.floor(riskyRatio * 2) + sanityPressure - ruleVerificationProgress,
+    Math.floor(turnNumber / 3) + consecutiveRisky + Math.floor(riskyRatio * 2) + sanityPressure + investigatePressure - ruleVerificationProgress,
     0,
     6,
   );
 
   const recentWindow = actionRecords.slice(-4);
   const recentVerificationActions = recentWindow.filter((record) => textIncludesAny(record.text, VERIFY_KEYWORDS)).length;
+  const recentActionWindow = actionRecords.slice(-CHONGSHAN_ENDING_ACTION_WINDOW_TURNS);
+  const recentMoveActions = recentActionWindow.filter((record) => record.actionType === 'move').length;
+  const recentItemActions = recentActionWindow.filter((record) => record.actionType === 'item').length;
   const sealStability = clamp((ruleVerificationProgress * 2) + deepZoneProgress + Math.min(plotItemCount, 3) - threatClock, -3, 6);
-  const strictEndingWindow = directorMode !== 'lab' || isChongshanStory(storyTitle, storySlug);
+  const strictEndingWindow = directorMode !== 'lab' || isChongshan;
   const minEndingTurn = strictEndingWindow
     ? Math.max(11, maxTurns - 2)
     : Math.max(8, maxTurns - 3);
@@ -1288,6 +1662,8 @@ const analyzeDifficultyDirectorState = (
     lastActionType,
     riskyRatio,
     consecutiveRisky,
+    investigateRatio,
+    consecutiveInvestigate,
     plotItemCount,
     clueItemCount,
     strictVerificationActions,
@@ -1299,6 +1675,8 @@ const analyzeDifficultyDirectorState = (
     hasRitualIntent,
     minEndingTurn,
     recentVerificationActions,
+    recentMoveActions,
+    recentItemActions,
   };
 };
 
@@ -1313,19 +1691,23 @@ const buildDirectorContext = (
   const profileLabel = isLab && gate.targetVictoryRateHint === '30%-45%'
     ? 'HIDDEN, LAB-BALANCED'
     : 'HIDDEN, STRICT';
+  const actionMixReady = state.recentMoveActions >= CHONGSHAN_ENDING_MIN_MOVE_ACTIONS
+    && state.recentItemActions >= CHONGSHAN_ENDING_MIN_ITEM_ACTIONS;
   const canAttemptTrueEnding = state.plotItemCount >= gate.truePlotItems
     && state.strictVerificationActions >= gate.trueVerifyActions
     && state.recentVerificationActions >= gate.trueRecentVerifyActions
     && state.deepZoneProgress >= gate.trueDeepZone
     && (!isLab ? state.hasRitualIntent : true)
     && state.sealStability >= gate.trueSealStability
-    && state.threatClock <= gate.trueThreatMax;
+    && state.threatClock <= gate.trueThreatMax
+    && actionMixReady;
   const canAttemptEscapeEnding = state.hasExitIntent
     && state.strictVerificationActions >= gate.escapeVerifyActions
     && state.recentVerificationActions >= gate.escapeRecentVerifyActions
     && state.plotItemCount >= gate.escapePlotItems
     && state.sealStability >= gate.escapeSealStability
-    && state.threatClock <= gate.escapeThreatMax;
+    && state.threatClock <= gate.escapeThreatMax
+    && actionMixReady;
   const knownRulesReliability = state.ruleVerificationProgress >= 2 ? 'MEDIUM/HIGH (部分已校验)' : 'LOW (多数守则尚未校验)';
 
   return `
@@ -1337,9 +1719,13 @@ Dynamic Difficulty Director (${profileLabel}):
 - Plot Item Count (excluding initial slip): ${state.plotItemCount}
 - Clue Item Count: ${state.clueItemCount}
 - Consecutive Risky Actions: ${state.consecutiveRisky}
+- Consecutive Investigate Actions: ${state.consecutiveInvestigate}
+- Investigate Ratio: ${state.investigateRatio.toFixed(2)}
 - Minimum ending turn: ${state.minEndingTurn}
 - Minimum victory turn floor (Chongshan hard rule): ${CHONGSHAN_MIN_VICTORY_TURN}
 - Recent Verification Actions (last 4 turns): ${state.recentVerificationActions}
+- Recent Move Actions (last ${CHONGSHAN_ENDING_ACTION_WINDOW_TURNS} turns): ${state.recentMoveActions}
+- Recent Item Actions (last ${CHONGSHAN_ENDING_ACTION_WINDOW_TURNS} turns): ${state.recentItemActions}
 - Known Rules Reliability: ${knownRulesReliability}
 - True Ending currently unlockable: ${canAttemptTrueEnding ? 'YES' : 'NO'}
 - Escape Ending currently unlockable: ${canAttemptEscapeEnding ? 'YES' : 'NO'}
@@ -1351,7 +1737,8 @@ Director Constraints:
 4) High Threat Clock should increase route denial / fake guidance / timing pressure, not just sanity damage.
 5) Do NOT output victory before Minimum ending turn, and never before turn ${CHONGSHAN_MIN_VICTORY_TURN} in Chongshan mode. Early game_over is allowed only for irreversible fatal rule violations or sanity <= 0.
 6) For this mode, target low victory rate (roughly ${gate.targetVictoryRateHint}) by enforcing hard ending gates.
-7) If ending requirements are not met, do NOT output victory. Provide partial progress or failure outcome instead.`;
+7) If ending requirements are not met, do NOT output victory. Provide partial progress or failure outcome instead.
+8) In ending window, pure investigation loops are insufficient. Victory requires at least ${CHONGSHAN_ENDING_MIN_MOVE_ACTIONS} move action(s) and ${CHONGSHAN_ENDING_MIN_ITEM_ACTIONS} item action(s) within the last ${CHONGSHAN_ENDING_ACTION_WINDOW_TURNS} turns.`;
 };
 
 const applyDifficultyDirector = ({
@@ -1410,23 +1797,25 @@ const applyDifficultyDirector = ({
 
   if (tuned.new_evidence.length > 0 && !isEvidenceWindow && !preserveCriticalEvidence) {
     tuned.new_evidence = [buildDecoyEvidence(turnNumber)];
-    tuned.narrative = appendNarrativeHint(tuned.narrative, '你拿到的是一份看似关键却互相矛盾的记录，它会拖慢判断。');
+    tuned.narrative = appendNarrativeHint(tuned.narrative, '这页记录像被两只手写过，前后互相咬反；它更像诱饵，不像出口。');
   }
 
   if (tuned.new_evidence.length > 0 && directorState.threatClock >= 4 && actionType !== 'risky' && !preserveCriticalEvidence) {
     tuned.new_evidence = [buildDecoyEvidence(turnNumber)];
-    tuned.narrative = appendNarrativeHint(tuned.narrative, '威胁升级后，低风险搜查只会回收被投放的伪线索。');
+    tuned.narrative = appendNarrativeHint(tuned.narrative, '威胁抬高后，安静角落里更容易捡到“被放好的答案”，先别轻信。');
   }
 
   if (tuned.new_evidence.length > 0 && inventory.length >= expectedEvidenceCap && !allowHeavyDiscovery && !preserveCriticalEvidence) {
     tuned.new_evidence = [buildDecoyEvidence(turnNumber)];
-    tuned.narrative = appendNarrativeHint(tuned.narrative, '你翻找到的只是互相矛盾的旧记录，尚不足以形成新线索。');
+    tuned.narrative = appendNarrativeHint(tuned.narrative, '你翻出的旧纸彼此打架，像有人故意把真话拆开；它还不足以指路。');
   }
 
   const expectedRuleCap = Math.max(3, Math.floor(turnNumber / 3) + 1);
   if (tuned.new_rules.length > 0 && currentRules.length >= expectedRuleCap && actionType !== 'investigate' && actionType !== 'item') {
     tuned.new_rules = [];
   }
+  const projectedRulesCount = currentRules.length + tuned.new_rules.length;
+  const projectedInventoryCount = inventory.length + tuned.new_evidence.length;
 
   const canAttemptTrueEnding = directorState.plotItemCount >= gate.truePlotItems
     && directorState.strictVerificationActions >= gate.trueVerifyActions
@@ -1474,11 +1863,15 @@ const applyDifficultyDirector = ({
   let lockedChongshanVictory = false;
   let resolvedChongshanVictoryTier: Exclude<ChongshanEndingTier, 'fall' | null> | null = null;
   let resolvedChongshanFallReason: ChongshanFallReasonCode | null = null;
+  let resolvedChongshanRoute: ChongshanRoute = detectChongshanRoute(currentAction);
   let pendingRescueChoices: Choice[] | null = null;
   let rescueWindowOpened = false;
   if (isChongshan) {
     const modelSignaledEnding = tuned.is_game_over;
-    const chongshanRoute = detectChongshanRoute(currentAction);
+    const chongshanRoute = resolvedChongshanRoute;
+    if (turnNumber >= directorState.minEndingTurn - 1 && !modelSignaledEnding) {
+      tuned.narrative = appendNarrativeHint(tuned.narrative, buildLateBranchingHint());
+    }
     const fallContextBase: ChongshanFallReasonContext = {
       directorState,
       route: chongshanRoute,
@@ -1507,33 +1900,112 @@ const applyDifficultyDirector = ({
     } else if (tier === 'fall') {
       resolvedChongshanFallReason = inferChongshanFallReasonCode(fallContextBase);
       const rescueAlreadyUsed = hasRescueActionInHistory(directorState) || hasRescueAction(currentAction);
+      const highProgressRecoverable = isHighProgressRecoverableState({ directorState, gate });
+      const nearMissRecoverable = isNearMissRouteOrChain({
+        reasonCode: resolvedChongshanFallReason,
+        directorState,
+        gate,
+      });
+      const highProgressSoftLanding = shouldOpenHighProgressSoftLanding({
+        reasonCode: resolvedChongshanFallReason,
+        projectedSanity,
+        projectedRulesCount,
+        projectedInventoryCount,
+        rescueAlreadyUsed,
+        isOvertime,
+        turnNumber,
+        hardEndingTurn,
+      });
+      const recoverableByReason = resolvedChongshanFallReason === 'fall_rule_chain_break'
+        || resolvedChongshanFallReason === 'fall_rule_conflict'
+        || resolvedChongshanFallReason === 'fall_route_incomplete'
+        || (resolvedChongshanFallReason === 'fall_unstable_seal' && highProgressRecoverable)
+        || nearMissRecoverable
+        || highProgressSoftLanding;
       const canOpenRescueWindow = !rescueAlreadyUsed
         && !isOvertime
         && projectedSanity > 0
         && turnNumber < hardEndingTurn
-        && turnNumber <= directorState.minEndingTurn + CHONGSHAN_RESCUE_WINDOW_TURNS
-        && (resolvedChongshanFallReason === 'fall_rule_chain_break' || resolvedChongshanFallReason === 'fall_rule_conflict');
+        && (turnNumber <= directorState.minEndingTurn + CHONGSHAN_RESCUE_WINDOW_TURNS || highProgressSoftLanding)
+        && recoverableByReason;
 
       if (canOpenRescueWindow) {
         tuned.is_game_over = false;
         tuned.is_victory = false;
         rescueWindowOpened = true;
         pendingRescueChoices = buildChongshanRescueChoices(resolvedChongshanFallReason);
+        const reasonLabelMap: Record<ChongshanFallReasonCode, string> = {
+          fall_sanity_depleted: '意识濒临坍塌',
+          fall_deadline_exhausted: '最后门缝将合',
+          fall_rule_chain_break: '核验链松脱',
+          fall_unstable_seal: '封印反向抽动',
+          fall_rule_conflict: '禁忌冲突已触发',
+          fall_route_incomplete: '路线失去咬合',
+        };
+        const actionHintMap: Record<ChongshanFallReasonCode, string> = {
+          fall_sanity_depleted: '先做低风险稳态动作，把呼吸和节奏拉回来。',
+          fall_deadline_exhausted: '别再绕路，直接做能落下收束的动作，门缝不会再等太久。',
+          fall_rule_chain_break: '先回核验点补齐三联校验，再继续往前。',
+          fall_unstable_seal: '先回控制桥稳住锚点与阀位，封印压住后再推进。',
+          fall_rule_conflict: '先处理冲突规则，撤销禁忌步骤，再恢复主线。',
+          fall_route_incomplete: '先重建“核验-封缝-撤离”顺序，别继续追伪线。',
+        };
         tuned.narrative = appendNarrativeHint(
           tuned.narrative,
-          `补救窗口已开启：当前失败原因为${resolvedChongshanFallReason === 'fall_rule_chain_break' ? '校验链断裂' : '规则冲突'}，你还有1次补链机会。`,
+          `你已经踩到失手边缘（${reasonLabelMap[resolvedChongshanFallReason]}）。井壁脉冲还会再跳${CHONGSHAN_RESCUE_WINDOW_TURNS}次，这道缝里仍留着一次补救机会。`,
         );
         tuned.narrative = appendNarrativeHint(
           tuned.narrative,
-          '请优先执行带【补救链】或【补救冲突】标记的动作，成功后可恢复终章判定资格。',
+          actionHintMap[resolvedChongshanFallReason],
         );
+        if (highProgressSoftLanding) {
+          tuned.narrative = appendNarrativeHint(
+            tuned.narrative,
+            '你已经摸到主链的边缘，医院暂时没有立刻吞掉你；把最后一处缺口补上，就还有翻盘机会。',
+          );
+        }
         resolvedChongshanFallReason = null;
       } else {
         tuned.is_game_over = true;
         tuned.is_victory = false;
         tuned.narrative = appendNarrativeHint(tuned.narrative, buildChongshanFallEndingHint(resolvedChongshanFallReason));
-        tuned.narrative = appendNarrativeHint(tuned.narrative, buildChongshanFallCauseHint(resolvedChongshanFallReason));
+        tuned.narrative = appendNarrativeHint(
+          tuned.narrative,
+          buildChongshanFallCauseHint(resolvedChongshanFallReason, {
+            directorState,
+            route: resolvedChongshanRoute,
+            hasEndingIntent,
+            gate,
+            turnNumber,
+            hardEndingTurn,
+          }),
+        );
       }
+    }
+  }
+
+  if (isChongshan && !tuned.is_game_over && !pendingRescueChoices) {
+    const rescueAlreadyUsed = hasRescueActionInHistory(directorState) || hasRescueAction(currentAction);
+    const unstablePreemptTurn = Math.max(4, directorState.minEndingTurn - CHONGSHAN_UNSTABLE_RESCUE_PREEMPT_TURN_OFFSET);
+    const inUnstableState = directorState.sealStability <= 0 || directorState.threatClock >= 4;
+    const nearEnding = turnNumber >= unstablePreemptTurn;
+    const canPreemptUnstableRescue = !rescueAlreadyUsed
+      && !isOvertime
+      && projectedSanity > 0
+      && inUnstableState
+      && nearEnding
+      && turnNumber < hardEndingTurn;
+    if (canPreemptUnstableRescue) {
+      pendingRescueChoices = buildChongshanRescueChoices('fall_unstable_seal');
+      rescueWindowOpened = true;
+      tuned.narrative = appendNarrativeHint(
+        tuned.narrative,
+        `封印开始反向抽动，井壁脉冲还会再跳${Math.max(0, hardEndingTurn - turnNumber)}次；现在补链，仍有机会把它按回去。`,
+      );
+      tuned.narrative = appendNarrativeHint(
+        tuned.narrative,
+        '先回控制桥稳住封印，再决定要不要冲向出口。',
+      );
     }
   }
 
@@ -1555,11 +2027,15 @@ const applyDifficultyDirector = ({
     }
   }
 
+  if (isChongshan && !tuned.is_game_over && turnNumber >= directorState.minEndingTurn - 1) {
+    tuned.narrative = appendNarrativeHint(tuned.narrative, buildLateBranchingHint());
+  }
+
   if (isChongshan && tuned.is_victory && turnNumber < CHONGSHAN_MIN_VICTORY_TURN) {
     tuned.is_victory = false;
     tuned.is_game_over = false;
     lockedChongshanVictory = false;
-    tuned.narrative = appendNarrativeHint(tuned.narrative, `回合数不足，胜利判定被驳回（崇山最低胜利回合：${CHONGSHAN_MIN_VICTORY_TURN}）。`);
+    tuned.narrative = appendNarrativeHint(tuned.narrative, '你刚要收束，井环却回吐冷光。时机未到，裂缝拒绝闭合，你还能感觉到主链还差最后一口气。');
   }
 
   if (tuned.is_victory && !allowVictory && !lockedChongshanVictory) {
@@ -1573,7 +2049,7 @@ const applyDifficultyDirector = ({
   if (isRushEndingPhase) {
     tuned.narrative = appendNarrativeHint(
       tuned.narrative,
-      `终章冲刺已开始：请在剩余${Math.max(0, hardEndingTurn - turnNumber)}回合内做出最终抉择，故事必须收束到胜利或死亡。`,
+      `走廊灯开始成片熄灭，整层在逼你表态。井壁脉冲还会再跳${Math.max(0, hardEndingTurn - turnNumber)}次；再晚一步，门会替你做决定。`,
     );
     tuned.choices = ensureChoiceShape(buildEndgameChoices({
       storyTitle,
@@ -1589,7 +2065,7 @@ const applyDifficultyDirector = ({
     tuned.is_game_over = true;
     tuned.is_victory = allowVictory;
     if (!allowVictory) {
-      tuned.narrative = appendNarrativeHint(tuned.narrative, '终章缓冲回合已耗尽，你未能完成最终闭环，封印在你面前彻底失效。');
+      tuned.narrative = appendNarrativeHint(tuned.narrative, '最后那道缓冲缝隙已经闭合，你没来得及补完终链，封印在眼前彻底失手。');
     }
   }
 
@@ -1598,13 +2074,19 @@ const applyDifficultyDirector = ({
     && directorState.strictVerificationActions < gate.trueVerifyActions
     && !hasVerificationChoice(tuned.choices);
   if (shouldInjectVerificationChoice) {
-    const verificationChoice = buildVerificationChoice();
+    const verificationChoice = buildVerificationChoice({
+      turnNumber,
+      locationName: tuned.location_name,
+    });
     const replaceIndex = tuned.choices.findIndex((choice) => choice.actionType === 'move');
     const targetIndex = replaceIndex >= 0 ? replaceIndex : tuned.choices.length - 1;
     tuned.choices[targetIndex] = verificationChoice;
 
     if (directorState.strictVerificationActions <= 2) {
-      const secondaryChoice = buildVerificationItemChoice();
+      const secondaryChoice = buildVerificationItemChoice({
+        turnNumber,
+        locationName: tuned.location_name,
+      });
       const secondaryIndex = tuned.choices.findIndex(
         (choice, index) => index !== targetIndex
           && choice.actionType !== 'risky'
@@ -1629,14 +2111,81 @@ const applyDifficultyDirector = ({
       && !textIncludesAny(choice.text, ENDING_ACTION_KEYWORDS));
     const targetIndex = replaceIndex >= 0 ? replaceIndex : tuned.choices.length - 1;
     tuned.choices[targetIndex] = deepZoneChoice;
-    tuned.narrative = appendNarrativeHint(tuned.narrative, '主线仍卡在深区推进，先进入东楼/地下二层补齐关键定位再尝试终局。');
+    tuned.narrative = appendNarrativeHint(tuned.narrative, '你还没摸到深区的真正坐标。先进入东楼/地下二层把定位补齐，再谈收束。');
+  }
+
+  const shouldForceSafeChoiceInLatePhase = isChongshan
+    && !tuned.is_game_over
+    && turnNumber >= hardEndingTurn - CHONGSHAN_SAFE_CHOICE_ENFORCE_WINDOW
+    && (directorState.threatClock >= 4 || directorState.sealStability <= 1 || directorState.consecutiveRisky >= 2);
+  if (shouldForceSafeChoiceInLatePhase && !hasStabilizeChoice(tuned.choices)) {
+    const stabilizeChoice = buildStabilizeChoice({
+      turnNumber,
+      locationName: tuned.location_name,
+    });
+    const riskyIndex = tuned.choices.findIndex((choice) => choice.actionType === 'risky');
+    const targetIndex = riskyIndex >= 0 ? riskyIndex : Math.max(0, tuned.choices.length - 1);
+    tuned.choices[targetIndex] = stabilizeChoice;
+    tuned.narrative = appendNarrativeHint(
+      tuned.narrative,
+      '风向明显在逼你冒进，但眼下更稳的是先稳住封印，再决定是否冲刺。',
+    );
   }
 
   if (pendingRescueChoices && !tuned.is_game_over) {
     tuned.choices = ensureChoiceShape(pendingRescueChoices, tuned.location_name);
     if (!rescueWindowOpened) {
-      tuned.narrative = appendNarrativeHint(tuned.narrative, '补救窗口触发：请先完成补链动作，再继续终局推进。');
+      tuned.narrative = appendNarrativeHint(tuned.narrative, '裂缝短暂松动了。先把补链动作做完，再继续向终章推进。');
     }
+  }
+
+  if (
+    isChongshan
+    && !tuned.is_game_over
+    && directorState.consecutiveInvestigate >= CHONGSHAN_INVESTIGATE_STREAK_SOFT_CAP + 2
+  ) {
+    tuned.narrative = appendNarrativeHint(
+      tuned.narrative,
+      '你连续停在原地核对太久了。医院会利用这段迟滞重排通道，下一步最好带上位移或执行动作。',
+    );
+  }
+
+  const shouldEnforceActionMixNearEnding = isChongshan
+    && !tuned.is_game_over
+    && !pendingRescueChoices
+    && turnNumber >= directorState.minEndingTurn - 1
+    && (
+      directorState.recentMoveActions < CHONGSHAN_ENDING_MIN_MOVE_ACTIONS
+      || directorState.recentItemActions < CHONGSHAN_ENDING_MIN_ITEM_ACTIONS
+    );
+  if (shouldEnforceActionMixNearEnding) {
+    const needsMove = directorState.recentMoveActions < CHONGSHAN_ENDING_MIN_MOVE_ACTIONS;
+    const needsItem = directorState.recentItemActions < CHONGSHAN_ENDING_MIN_ITEM_ACTIONS;
+
+    if (needsMove && !tuned.choices.some((choice) => choice.actionType === 'move')) {
+      const targetIndex = tuned.choices.findIndex((choice) =>
+        choice.actionType !== 'risky'
+        && !textIncludesAny(choice.text, VERIFY_KEYWORDS)
+        && !textIncludesAny(choice.text, ENDING_ACTION_KEYWORDS));
+      const moveChoice = buildDeepZoneChoice(directorState.deepZoneProgress);
+      tuned.choices[targetIndex >= 0 ? targetIndex : Math.max(0, tuned.choices.length - 1)] = moveChoice;
+    }
+
+    if (needsItem && !tuned.choices.some((choice) => choice.actionType === 'item')) {
+      const targetIndex = tuned.choices.findIndex((choice) =>
+        choice.actionType !== 'risky'
+        && choice.actionType !== 'move');
+      const itemChoice = buildStabilizeChoice({
+        turnNumber,
+        locationName: tuned.location_name,
+      });
+      tuned.choices[targetIndex >= 0 ? targetIndex : 0] = itemChoice;
+    }
+
+    tuned.narrative = appendNarrativeHint(
+      tuned.narrative,
+      '要把结局真正落地，除了核验，你还需要拿出“位移确认 + 执行封缝”这两步实操动作。',
+    );
   }
 
   // If the player repeatedly chooses risky actions and ignores verification, add structural pressure.
@@ -1655,7 +2204,7 @@ const applyDifficultyDirector = ({
     if (isChongshan && !resolvedChongshanFallReason) {
       resolvedChongshanFallReason = inferChongshanFallReasonCode({
         directorState,
-        route: detectChongshanRoute(currentAction),
+        route: resolvedChongshanRoute,
         currentAction,
         projectedSanity,
         turnNumber,
@@ -1670,7 +2219,7 @@ const applyDifficultyDirector = ({
     if (tuned.is_game_over && !tuned.is_victory && !resolvedChongshanFallReason) {
       resolvedChongshanFallReason = inferChongshanFallReasonCode({
         directorState,
-        route: detectChongshanRoute(currentAction),
+        route: resolvedChongshanRoute,
         currentAction,
         projectedSanity,
         turnNumber,
@@ -1685,6 +2234,24 @@ const applyDifficultyDirector = ({
       isVictory: tuned.is_victory,
       victoryTier: resolvedChongshanVictoryTier,
       fallReasonCode: resolvedChongshanFallReason,
+      fallReasonContext: resolvedChongshanFallReason
+        ? {
+          directorState,
+          route: resolvedChongshanRoute,
+          hasEndingIntent,
+          gate,
+          turnNumber,
+          hardEndingTurn,
+        }
+        : null,
+    });
+  }
+
+  if (isChongshan && !tuned.is_game_over && turnNumber >= directorState.minEndingTurn - 1) {
+    tuned.choices = rebalanceLatePhaseChoices({
+      choices: tuned.choices,
+      locationName: tuned.location_name,
+      turnNumber,
     });
   }
 
@@ -1710,10 +2277,9 @@ export const generateNextTurnServer = async ({
   storyTitle,
   storySlug,
 }: GenerateTurnInput): Promise<GeminiResponse> => {
-  const effectiveApiKey = apiKey || process.env.API_KEY;
-  if (!effectiveApiKey) {
-    throw new Error('API Key not found');
-  }
+  const runtimeApiKey = typeof apiKey === 'string' ? apiKey.trim() : '';
+  const envApiKey = typeof process.env.API_KEY === 'string' ? process.env.API_KEY.trim() : '';
+  const effectiveApiKey = provider === 'gemini' ? (runtimeApiKey || envApiKey) : runtimeApiKey;
 
   const systemInstruction = (systemInstructionOverride || '').trim() || buildSystemInstruction(gameConfig);
   const rulesContext = currentRules.length > 0
@@ -1777,6 +2343,9 @@ Begin wrapping up the narrative. REMEMBER: Focus on resolving the PLOT (items/ex
   const effectiveProvider = provider;
 
   if (effectiveProvider === 'gemini') {
+    if (!effectiveApiKey) {
+      throw new Error('API Key required for Gemini provider');
+    }
     const options: any = { apiKey: effectiveApiKey };
     if (baseUrl) {
       options.httpOptions = { baseUrl: baseUrl.replace(/\/+$/, '') };
@@ -1841,7 +2410,7 @@ Begin wrapping up the narrative. REMEMBER: Focus on resolving the PLOT (items/ex
     try {
       const jsonText = await requestOpenAIJsonCompletion({
         cleanUrl,
-        apiKey: effectiveApiKey,
+        apiKey: effectiveApiKey || undefined,
         model: openAiModel,
         messages,
         temperature: isRepairAttempt ? 0 : 0.8,
@@ -1926,10 +2495,8 @@ export const evaluateStoryServer = async ({
   model,
   session,
 }: EvaluateStoryInput): Promise<StoryEvaluation> => {
-  const effectiveApiKey = apiKey || process.env.API_KEY;
-  if (!effectiveApiKey) {
-    throw new Error('API Key not found');
-  }
+  const runtimeApiKey = typeof apiKey === 'string' ? apiKey.trim() : '';
+  const envApiKey = typeof process.env.API_KEY === 'string' ? process.env.API_KEY.trim() : '';
 
   const systemPrompt = `
 You are a narrative QA evaluator for a Chinese rules-horror text game.
@@ -1965,8 +2532,12 @@ ${JSON.stringify(session.timeline)}
 
   const isAiStudio = !!process.env.API_KEY;
   const effectiveProvider = isAiStudio ? 'gemini' : provider;
+  const effectiveApiKey = effectiveProvider === 'gemini' ? (runtimeApiKey || envApiKey) : runtimeApiKey;
 
   if (effectiveProvider === 'gemini') {
+    if (!effectiveApiKey) {
+      throw new Error('API Key required for Gemini provider');
+    }
     const options: any = { apiKey: effectiveApiKey };
     if (baseUrl) {
       options.httpOptions = { baseUrl: baseUrl.replace(/\/+$/, '') };
@@ -1996,12 +2567,15 @@ ${JSON.stringify(session.timeline)}
   }
 
   const cleanUrl = normalizeOpenAIBaseUrl(baseUrl);
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+  };
+  if (effectiveApiKey) {
+    headers.Authorization = `Bearer ${effectiveApiKey}`;
+  }
   const response = await fetch(`${cleanUrl}/chat/completions`, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${effectiveApiKey}`,
-    },
+    headers,
     body: JSON.stringify({
       model: model || 'gpt-4o-mini',
       messages: [
@@ -2028,14 +2602,19 @@ ${JSON.stringify(session.timeline)}
 };
 
 export const fetchOpenAIModelsServer = async (baseUrl: string, apiKey: string): Promise<string[]> => {
-  if (!baseUrl || !apiKey) {
+  if (!baseUrl) {
     return [];
   }
 
   try {
     const cleanUrl = normalizeOpenAIBaseUrl(baseUrl);
+    const normalizedApiKey = typeof apiKey === 'string' ? apiKey.trim() : '';
+    const headers: Record<string, string> = {};
+    if (normalizedApiKey) {
+      headers.Authorization = `Bearer ${normalizedApiKey}`;
+    }
     const response = await fetch(`${cleanUrl}/models`, {
-      headers: { Authorization: `Bearer ${apiKey}` },
+      headers,
     });
 
     if (!response.ok) {
@@ -2055,13 +2634,13 @@ export const testConnectionServer = async (
   provider: 'gemini' | 'openai' = 'gemini',
   model?: string,
 ): Promise<boolean> => {
-  if (!apiKey) {
-    return false;
-  }
-
   try {
     if (provider === 'gemini') {
-      const options: any = { apiKey };
+      const normalizedApiKey = typeof apiKey === 'string' ? apiKey.trim() : '';
+      if (!normalizedApiKey) {
+        return false;
+      }
+      const options: any = { apiKey: normalizedApiKey };
       if (baseUrl) {
         options.httpOptions = { baseUrl: baseUrl.replace(/\/+$/, '') };
       }
@@ -2079,12 +2658,16 @@ export const testConnectionServer = async (
     }
 
     const cleanUrl = normalizeOpenAIBaseUrl(baseUrl);
+    const normalizedApiKey = typeof apiKey === 'string' ? apiKey.trim() : '';
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+    };
+    if (normalizedApiKey) {
+      headers.Authorization = `Bearer ${normalizedApiKey}`;
+    }
     const response = await fetch(`${cleanUrl}/chat/completions`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${apiKey}`,
-      },
+      headers,
       body: JSON.stringify({
         model: model || 'gpt-3.5-turbo',
         messages: [{ role: 'user', content: 'Test connection' }],
@@ -2233,11 +2816,40 @@ export const generateImageServer = async ({
   pollinationsModel,
 }: GenerateImageInput): Promise<string> => {
   if (provider === 'openai') {
-    if (!apiKey || !baseUrl) {
+    const hasApiKey = Boolean(apiKey && apiKey.trim());
+    const hasBaseUrl = Boolean(baseUrl && baseUrl.trim());
+    if (!hasApiKey || !hasBaseUrl) {
+      console.error('[aiEngine.generateImageServer] openai config missing', {
+        provider,
+        model: model || 'dall-e-3',
+        hasApiKey,
+        hasBaseUrl,
+      });
       throw new Error('OpenAI image provider needs baseUrl and apiKey');
     }
-    return generateOpenAIImageServer(prompt, apiKey, baseUrl, model || 'dall-e-3');
+    try {
+      return await generateOpenAIImageServer(prompt, apiKey, baseUrl, model || 'dall-e-3');
+    } catch (error: any) {
+      console.error('[aiEngine.generateImageServer] openai generation failed', {
+        provider,
+        model: model || 'dall-e-3',
+        hasApiKey,
+        hasBaseUrl,
+        errorMessage: error?.message || 'unknown',
+      });
+      throw error;
+    }
   }
 
-  return generatePollinationsImageServer(prompt, pollinationsApiKey, pollinationsModel || 'flux');
+  try {
+    return await generatePollinationsImageServer(prompt, pollinationsApiKey, pollinationsModel || 'flux');
+  } catch (error: any) {
+    console.error('[aiEngine.generateImageServer] pollinations generation failed', {
+      provider: 'pollinations',
+      model: pollinationsModel || 'flux',
+      hasApiKey: Boolean(pollinationsApiKey && pollinationsApiKey.trim()),
+      errorMessage: error?.message || 'unknown',
+    });
+    throw error;
+  }
 };

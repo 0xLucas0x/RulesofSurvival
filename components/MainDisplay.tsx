@@ -64,6 +64,55 @@ interface Segment {
   content: string;
 }
 
+const sanitizeNarrativeMarkup = (input: string): string => {
+  let next = input || '';
+
+  // Fix malformed pseudo-tags like: rule>'...'/rule> or new_rule>'...'/new_rule>
+  next = next.replace(/(?:new_rule|rule)>'([^']+)'\/(?:new_rule|rule)>/gi, '「$1」');
+
+  // Convert model-introduced rule wrappers to plain readable text
+  next = next.replace(/<(?:new_rule|rule)>([\s\S]*?)<\/(?:new_rule|rule)>/gi, '「$1」');
+
+  // Keep only supported styled tags; unwrap all other tags
+  next = next.replace(/<([a-zA-Z_][\w-]*)>([\s\S]*?)<\/\1>/g, (full, tag, content) => {
+    const normalizedTag = String(tag || '').toLowerCase();
+    if (normalizedTag === 'danger' || normalizedTag === 'dialogue' || normalizedTag === 'clue') {
+      return `<${normalizedTag}>${content}</${normalizedTag}>`;
+    }
+    return String(content || '');
+  });
+
+  // Remove stray unsupported opening/closing tags if any remain
+  next = next.replace(/<\/?(?!danger|dialogue|clue)[a-zA-Z_][\w-]*>/gi, '');
+
+  return next;
+};
+
+const parseNarrativeSegments = (input: string): Segment[] => {
+  const text = sanitizeNarrativeMarkup(input);
+  const regex = /<(danger|dialogue|clue)>([\s\S]*?)<\/\1>/gi;
+  const segments: Segment[] = [];
+  let cursor = 0;
+  let match: RegExpExecArray | null = null;
+
+  while ((match = regex.exec(text)) !== null) {
+    if (match.index > cursor) {
+      segments.push({ type: 'text', content: text.slice(cursor, match.index) });
+    }
+    segments.push({
+      type: match[1].toLowerCase() as Segment['type'],
+      content: match[2] || '',
+    });
+    cursor = match.index + match[0].length;
+  }
+
+  if (cursor < text.length) {
+    segments.push({ type: 'text', content: text.slice(cursor) });
+  }
+
+  return segments.filter((segment) => !!segment.content);
+};
+
 const TypewriterText: React.FC<{ text: string, speed?: number }> = ({ text, speed = 30 }) => {
   const [displayedSegments, setDisplayedSegments] = useState<Segment[]>([]);
   const [isDone, setIsDone] = useState(false);
@@ -74,20 +123,8 @@ const TypewriterText: React.FC<{ text: string, speed?: number }> = ({ text, spee
     setDisplayedSegments([]);
     setIsDone(false);
 
-    // 1. Parse the text into segments
-    const regex = /<(danger|dialogue|clue)>(.*?)<\/\1>|([^<]+)/g;
-    let match;
-    const parsedSegments: Segment[] = [];
-
-    while ((match = regex.exec(text)) !== null) {
-      if (match[1]) {
-        // Matched a tag
-        parsedSegments.push({ type: match[1] as any, content: match[2] });
-      } else if (match[3]) {
-        // Matched plain text
-        parsedSegments.push({ type: 'text', content: match[3] });
-      }
-    }
+    // 1. Parse and sanitize text into segments
+    const parsedSegments = parseNarrativeSegments(text);
 
     // 2. Animate loop
     let currentSegmentIndex = 0;
