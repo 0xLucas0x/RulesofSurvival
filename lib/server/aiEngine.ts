@@ -401,6 +401,48 @@ const CHONGSHAN_PLOT_ITEM_KEYWORDS = [
   '裂缝',
   '守则原件',
 ];
+const CHONGSHAN_EARLY_REBALANCE_TURNS = new Set<number>([1, 2, 3, 4, 5, 8]);
+const CHONGSHAN_CONTEXT_HINT_KEYWORDS = [
+  '护士',
+  '红衣',
+  '东楼',
+  '地下',
+  '地下二层',
+  '大厅',
+  '走廊',
+  '楼梯',
+  '护士站',
+  '前台',
+  '病房',
+  '监控',
+  '镜子',
+  '心跳',
+  '挂号单',
+  '病历',
+  '档案',
+  '录音',
+  '钥匙',
+  '封印',
+  '封缝',
+  '裂缝',
+  '锚点',
+  '守则',
+  '规则',
+  '线索',
+  '物证',
+  '证词',
+  '禁区',
+  '封锁',
+  '广播',
+  '钟声',
+  '回声',
+];
+const CHONGSHAN_CHOICE_TEXT_MAX_LEN = resolveBoundedIntEnv(
+  'CHONGSHAN_CHOICE_TEXT_MAX_LEN',
+  48,
+  28,
+  80,
+);
 const ENDING_GRACE_TURNS = 3;
 
 const textIncludesAny = (text: string, keywords: string[]): boolean => {
@@ -524,7 +566,7 @@ const ensureChoiceShape = (choices: GeminiResponse['choices'], locationName: str
   const normalized: Choice[] = [];
 
   for (const item of raw) {
-    const text = typeof item?.text === 'string' ? item.text.trim() : '';
+    const text = typeof item?.text === 'string' ? sanitizeChoiceText(item.text) : '';
     if (!text || unique.has(text)) {
       continue;
     }
@@ -562,9 +604,10 @@ const ensureChoiceShape = (choices: GeminiResponse['choices'], locationName: str
   }
 
   if (!normalized.some((choice) => choice.actionType === 'risky')) {
+    const riskyFallback = buildRiskyFallbackChoice({ locationName });
     normalized[normalized.length - 1] = {
       id: normalized[normalized.length - 1]?.id || 'r1',
-      text: '冒险进入限制区域，尝试阻断异常扩散',
+      text: riskyFallback.text,
       actionType: 'risky',
     };
   }
@@ -576,6 +619,50 @@ const hasVerificationChoice = (choices: Choice[]): boolean => {
   return choices.some((choice) => textIncludesAny(choice.text, VERIFY_KEYWORDS));
 };
 
+const condenseChoiceTextForUi = (text: string): string => {
+  let out = (text || '').replace(/\s+/g, ' ').trim();
+  if (!out) {
+    return '';
+  }
+  if (out.length <= CHONGSHAN_CHOICE_TEXT_MAX_LEN) {
+    return out;
+  }
+
+  // Remove verbose uncertainty and filler phrasing first.
+  const replacements: Array<[RegExp, string]> = [
+    [/[，,]?(也许|或许|试图|尝试|尽量|可能|看能否|看看能否|小心翼翼地?)/g, ''],
+    [/继续/g, '再'],
+    [/沿着/g, '沿'],
+    [/(先|再)把/g, '把'],
+    [/，?这是最后的分歧之一。?/g, ''],
+    [/；?失手会被(当场反扑|直接拖入裂缝)。?/g, '（高风险）'],
+    [/，?哪怕这样会[^，。；]*[，。；]?/g, ''],
+  ];
+  for (const [pattern, value] of replacements) {
+    out = out.replace(pattern, value).trim();
+  }
+  out = out.replace(/\s+/g, ' ').trim();
+  if (out.length <= CHONGSHAN_CHOICE_TEXT_MAX_LEN) {
+    return out;
+  }
+
+  // Keep the first meaningful clause to preserve action intent.
+  const clause = out.split(/[。；;!?？！]/)[0]?.trim() || out;
+  if (clause.length <= CHONGSHAN_CHOICE_TEXT_MAX_LEN) {
+    return clause;
+  }
+
+  // Hard cap for button readability.
+  return `${clause.slice(0, CHONGSHAN_CHOICE_TEXT_MAX_LEN - 1).trim()}…`;
+};
+
+function sanitizeChoiceText(text: string): string {
+  return condenseChoiceTextForUi((text || '')
+    .replace(/<\s*\/?\s*(danger|clue|dialogue)\s*>/gi, '')
+    .replace(/^\s*(move|investigate|item|risky)\s*[:：]\s*/i, '')
+    .trim());
+}
+
 const resolveChoiceLocationAnchor = (locationName: string): string => {
   const location = (locationName || '').trim();
   if (!location) {
@@ -583,6 +670,319 @@ const resolveChoiceLocationAnchor = (locationName: string): string => {
   }
   return location.includes('崇山医院') ? location.replace('崇山医院 - ', '') : location;
 };
+
+const HIGH_RISK_SEMANTIC_PATTERNS: RegExp[] = [
+  /(直视|凝视|盯着).*(护士|红衣)/,
+  /(喊出|说出).*(名字|真名)/,
+  /(相信|跟随).*(红衣|红色)/,
+  /回头(?!路)/,
+];
+
+const hasHighRiskSemantics = (text: string): boolean => {
+  return HIGH_RISK_SEMANTIC_PATTERNS.some((pattern) => pattern.test(text || ''));
+};
+
+const softenNonRiskyDangerText = (text: string): string => {
+  let out = text || '';
+  out = out.replace(/不回头/g, '不转身');
+  out = out.replace(/回头/g, '侧身');
+  out = out.replace(/(直视|凝视|盯着)([^，。；、]*)?(护士|红衣)/g, '借反光观察$3');
+  out = out.replace(/(喊出|说出)([^，。；、]*)?(名字|真名)/g, '默记$3');
+  out = out.replace(/(相信|跟随)([^，。；、]*)?(红衣|红色)/g, '核验$3相关线索');
+  return out.trim();
+};
+
+const softenDangerSemanticsOnSafeChoices = (params: {
+  choices: Choice[];
+  locationName: string;
+  turnNumber: number;
+}): Choice[] => {
+  const { choices, locationName, turnNumber } = params;
+  const anchor = resolveChoiceLocationAnchor(locationName);
+  const contextKeywords = [anchor];
+  const seenText = new Set<string>();
+  const out: Choice[] = [];
+
+  for (const choice of choices) {
+    let text = sanitizeChoiceText(choice.text);
+    if (!text) {
+      continue;
+    }
+
+    if (choice.actionType !== 'risky' && hasHighRiskSemantics(text)) {
+      text = softenNonRiskyDangerText(text);
+    }
+    if (choice.actionType !== 'risky' && hasHighRiskSemantics(text)) {
+      text = buildEarlyPhaseFallbackChoice({
+        actionType: choice.actionType,
+        turnNumber,
+        locationName,
+        contextKeywords,
+      }).text;
+    }
+    if (!text || seenText.has(text)) {
+      continue;
+    }
+
+    seenText.add(text);
+    out.push({
+      ...choice,
+      text,
+    });
+  }
+
+  return out.length ? out : choices;
+};
+
+const extractEarlyChoiceContextKeywords = (params: {
+  locationName: string;
+  currentAction: string;
+  narrative: string;
+  currentRules: string[];
+  inventory: Evidence[];
+  directorState: DifficultyDirectorState;
+}): string[] => {
+  const aggregate = [
+    params.locationName,
+    params.currentAction,
+    params.narrative,
+    ...params.currentRules.slice(-4),
+    ...params.inventory.slice(-4).map((item) => `${item.name} ${item.description}`),
+    ...params.directorState.actionRecords.slice(-3).map((record) => record.text),
+  ].join(' ');
+  const keywordHits = CHONGSHAN_CONTEXT_HINT_KEYWORDS.filter((keyword) => aggregate.includes(keyword));
+  const anchor = resolveChoiceLocationAnchor(params.locationName);
+  return uniqNonEmpty([...keywordHits.slice(0, 6), anchor]);
+};
+
+const pickEarlyContextTopic = (contextKeywords: string[], anchor: string): string => {
+  return contextKeywords.find((keyword) => keyword !== anchor && !anchor.includes(keyword)) || '线索';
+};
+
+const buildEarlyPhaseFallbackChoice = (params: {
+  actionType: ActionType;
+  turnNumber: number;
+  locationName: string;
+  contextKeywords: string[];
+}): Choice => {
+  const anchor = resolveChoiceLocationAnchor(params.locationName);
+  const topic = pickEarlyContextTopic(params.contextKeywords, anchor);
+  if (params.actionType === 'risky') {
+    return buildRiskyFallbackChoice({ locationName: params.locationName, turnNumber: params.turnNumber });
+  }
+  if (params.actionType === 'move') {
+    const variants = [
+      `沿着${anchor}换位前压，确认${topic}指向的通道是否真实可走。`,
+      `先离开原地转入${anchor}相邻区域，用位移判断${topic}是不是诱导。`,
+      `贴着${anchor}向前挪一步，从新视角确认${topic}对应的路径。`,
+    ];
+    return {
+      id: 'early_move',
+      text: variants[params.turnNumber % variants.length],
+      actionType: 'move',
+    };
+  }
+  if (params.actionType === 'item') {
+    const variants = [
+      `用手头物件在${anchor}做一次小范围实测，判断${topic}是否可信。`,
+      `把关键物件贴到${anchor}的关键节点，确认${topic}是不是伪线。`,
+      `先用现有道具在${anchor}验证一个细节，再决定是否推进。`,
+    ];
+    return {
+      id: 'early_item',
+      text: variants[params.turnNumber % variants.length],
+      actionType: 'item',
+    };
+  }
+  const variants = [
+    `先在${anchor}核对${topic}与手头守则，排除一条明显假线。`,
+    `回看${anchor}留下的痕迹与证词，确认${topic}是否站得住。`,
+    `贴着${anchor}做一次短核验，先把${topic}这段链条扣上。`,
+  ];
+  return {
+    id: 'early_investigate',
+    text: variants[params.turnNumber % variants.length],
+    actionType: 'investigate',
+  };
+};
+
+const choiceHitsContext = (text: string, contextKeywords: string[], anchor: string): boolean => {
+  return text.includes(anchor) || textIncludesAny(text, contextKeywords);
+};
+
+const scoreEarlyChoice = (params: {
+  choice: Choice;
+  contextKeywords: string[];
+  anchor: string;
+}): number => {
+  const { choice, contextKeywords, anchor } = params;
+  let score = 0;
+  if (choiceHitsContext(choice.text, contextKeywords, anchor)) {
+    score += 2;
+  } else {
+    score -= 1;
+  }
+  if (choice.text.length <= 42) {
+    score += 0.5;
+  } else if (choice.text.length > 56) {
+    score -= 0.75;
+  }
+  if (choice.actionType === 'investigate' && textIncludesAny(choice.text, VERIFY_KEYWORDS)) {
+    score += 0.5;
+  }
+  if (textIncludesAny(choice.text, ['也许', '或许', '试图', '看看'])) {
+    score -= 0.5;
+  }
+  if (choice.actionType !== 'risky' && hasHighRiskSemantics(choice.text)) {
+    score -= 2;
+  }
+  return score;
+};
+
+const pickBestEarlyChoice = (params: {
+  pool: Choice[];
+  contextKeywords: string[];
+  anchor: string;
+}): Choice | null => {
+  const { pool, contextKeywords, anchor } = params;
+  if (!pool.length) {
+    return null;
+  }
+  const ranked = [...pool]
+    .map((choice, index) => ({
+      choice,
+      score: scoreEarlyChoice({ choice, contextKeywords, anchor }),
+      index,
+    }))
+    .sort((a, b) => (b.score - a.score) || (a.index - b.index));
+  return ranked[0]?.choice || null;
+};
+
+const rebalanceEarlyPhaseChoices = (params: {
+  choices: Choice[];
+  turnNumber: number;
+  locationName: string;
+  currentAction: string;
+  narrative: string;
+  currentRules: string[];
+  inventory: Evidence[];
+  directorState: DifficultyDirectorState;
+}): Choice[] => {
+  const {
+    choices,
+    turnNumber,
+    locationName,
+    currentAction,
+    narrative,
+    currentRules,
+    inventory,
+    directorState,
+  } = params;
+  const anchor = resolveChoiceLocationAnchor(locationName);
+  const contextKeywords = extractEarlyChoiceContextKeywords({
+    locationName,
+    currentAction,
+    narrative,
+    currentRules,
+    inventory,
+    directorState,
+  });
+
+  const normalized: Choice[] = [];
+  const seenText = new Set<string>();
+  for (const choice of choices) {
+    let text = sanitizeChoiceText(choice.text);
+    if (!text) {
+      continue;
+    }
+    if (choice.actionType !== 'risky') {
+      text = softenNonRiskyDangerText(text);
+    }
+    if (!text || seenText.has(text)) {
+      continue;
+    }
+    seenText.add(text);
+    normalized.push({ ...choice, text });
+  }
+
+  const byType: Record<ActionType, Choice[]> = {
+    move: [],
+    investigate: [],
+    item: [],
+    risky: [],
+  };
+  for (const choice of normalized) {
+    byType[choice.actionType].push(choice);
+  }
+
+  const order: ActionType[] = turnNumber <= 2
+    ? ['investigate', 'move', 'item', 'risky']
+    : ['move', 'investigate', 'item', 'risky'];
+
+  const picked: Choice[] = [];
+  const pickedText = new Set<string>();
+  for (const actionType of order) {
+    const best = pickBestEarlyChoice({
+      pool: byType[actionType],
+      contextKeywords,
+      anchor,
+    });
+    let candidate = best || buildEarlyPhaseFallbackChoice({
+      actionType,
+      turnNumber,
+      locationName,
+      contextKeywords,
+    });
+
+    if (actionType !== 'risky' && hasHighRiskSemantics(candidate.text)) {
+      candidate = buildEarlyPhaseFallbackChoice({
+        actionType,
+        turnNumber: turnNumber + 1,
+        locationName,
+        contextKeywords,
+      });
+    }
+    if (actionType !== 'risky' && !choiceHitsContext(candidate.text, contextKeywords, anchor)) {
+      candidate = buildEarlyPhaseFallbackChoice({
+        actionType,
+        turnNumber: turnNumber + 2,
+        locationName,
+        contextKeywords,
+      });
+    }
+
+    if (!pickedText.has(candidate.text)) {
+      pickedText.add(candidate.text);
+      picked.push(candidate);
+    }
+  }
+
+  if (!picked.some((choice) => choice.actionType === 'risky')) {
+    picked[picked.length - 1] = buildEarlyPhaseFallbackChoice({
+      actionType: 'risky',
+      turnNumber,
+      locationName,
+      contextKeywords,
+    });
+  }
+
+  return picked;
+};
+
+function buildRiskyFallbackChoice(params: { locationName: string; turnNumber?: number }): Choice {
+  const { locationName, turnNumber = 0 } = params;
+  const anchor = resolveChoiceLocationAnchor(locationName);
+  const variants = [
+    `借${anchor}灯灭的一瞬硬闯侧门，赌一次抢占先机；失手会被当场反扑。`,
+    `故意敲响${anchor}的金属栏后立刻穿行，赌那东西会被声源引开。`,
+    `顺着${anchor}最暗的一段强行穿过去，赌这次不是诱饵。`,
+  ];
+  return {
+    id: 'risky_fallback',
+    text: variants[turnNumber % variants.length],
+    actionType: 'risky',
+  };
+}
 
 const buildVerificationChoice = (params: { turnNumber: number; locationName: string }): Choice => {
   const anchor = resolveChoiceLocationAnchor(params.locationName);
@@ -627,6 +1027,30 @@ const buildStabilizeChoice = (params: { turnNumber: number; locationName: string
     id: 'stabilize',
     text: variants[params.turnNumber % variants.length],
     actionType: 'item',
+  };
+};
+
+const buildLateProbeChoice = (params: { turnNumber: number; locationName: string }): Choice => {
+  const anchor = resolveChoiceLocationAnchor(params.locationName);
+  const variants: Array<{ text: string; actionType: Choice['actionType'] }> = [
+    {
+      text: `借着${anchor}的盲角换位，逼那道低语先暴露哪条路在撒谎。`,
+      actionType: 'move',
+    },
+    {
+      text: `把手里的记录贴在${anchor}门缝做一次回响试探，看哪扇门会先“回应”你。`,
+      actionType: 'item',
+    },
+    {
+      text: `在${anchor}敲三下护栏后立刻后撤，试探红衣会先扑向哪个方向。`,
+      actionType: 'move',
+    },
+  ];
+  const picked = variants[params.turnNumber % variants.length];
+  return {
+    id: 'late_probe',
+    text: picked.text,
+    actionType: picked.actionType,
   };
 };
 
@@ -745,14 +1169,22 @@ const rebalanceLatePhaseChoices = (params: {
   choices: Choice[];
   locationName: string;
   turnNumber: number;
+  directorState: DifficultyDirectorState;
+  gate: EndingGateProfile;
 }): Choice[] => {
-  const { choices, locationName, turnNumber } = params;
+  const { choices, locationName, turnNumber, directorState, gate } = params;
   const anchor = resolveChoiceLocationAnchor(locationName);
   const riskyConsequence = turnNumber % 2 === 0 ? '失手会被当场反扑' : '失手会被直接拖入裂缝';
   const movePool = choices.filter((choice) => choice.actionType === 'move');
   const investigatePool = choices.filter((choice) => choice.actionType === 'investigate');
   const itemPool = choices.filter((choice) => choice.actionType === 'item');
   const riskyPool = choices.filter((choice) => choice.actionType === 'risky');
+  const verifyNeeded = directorState.strictVerificationActions < gate.trueVerifyActions
+    || directorState.recentVerificationActions < gate.trueRecentVerifyActions;
+  const investigateOverloaded = directorState.consecutiveInvestigate >= 2 || investigatePool.length >= 2;
+  const canOfferRisky = directorState.threatClock <= gate.trueThreatMax
+    && directorState.sealStability > 0
+    && directorState.consecutiveRisky < 2;
 
   const advanceChoice = pickChoiceByKeywords(movePool, ['前往', '走', '转入', '下潜', '入口', '通道', '楼梯', '东楼', '地下'])
     || movePool[0]
@@ -777,19 +1209,32 @@ const rebalanceLatePhaseChoices = (params: {
     };
   const riskyChoice = pickChoiceByKeywords(riskyPool, ['冒险', '硬闯', '赌', '速通', '失手', '反扑'])
     || riskyPool[0]
-    || {
-      id: 'late_risky',
+    || ({
+      ...buildRiskyFallbackChoice({ locationName, turnNumber }),
       text: `趁红衣护士换位时硬闯分岔口，赌一次速通；${riskyConsequence}。`,
-      actionType: 'risky' as const,
-    };
+    });
+  const probeChoice = buildLateProbeChoice({ turnNumber, locationName });
+
+  // Late phase uses fewer, clearer options: always keep "推进 + 执行", then pick one varied third branch.
+  let thirdChoice: Choice;
+  if (verifyNeeded && !investigateOverloaded) {
+    thirdChoice = verifyChoice;
+  } else if (canOfferRisky && turnNumber % 2 === 0) {
+    thirdChoice = riskyChoice;
+  } else {
+    thirdChoice = probeChoice;
+  }
 
   const picked: Choice[] = [];
   const usedText = new Set<string>();
-  for (const choice of [advanceChoice, verifyChoice, executeChoice, riskyChoice]) {
+  for (const choice of [advanceChoice, executeChoice, thirdChoice]) {
     if (!usedText.has(choice.text)) {
       usedText.add(choice.text);
       picked.push(choice);
     }
+  }
+  if (picked.length < 3 && !usedText.has(riskyChoice.text)) {
+    picked.push(riskyChoice);
   }
   return picked;
 };
@@ -879,6 +1324,7 @@ const CHONGSHAN_ENDING_MIN_ITEM_ACTIONS = resolveBoundedIntEnv('CHONGSHAN_ENDING
 const CHONGSHAN_INVESTIGATE_STREAK_SOFT_CAP = resolveBoundedIntEnv('CHONGSHAN_INVESTIGATE_STREAK_SOFT_CAP', 4, 2, 8);
 const CHONGSHAN_INVESTIGATE_VERIFY_DECAY_STEP = resolveBoundedIntEnv('CHONGSHAN_INVESTIGATE_VERIFY_DECAY_STEP', 2, 1, 4);
 const CHONGSHAN_INVESTIGATE_THREAT_STEP = resolveBoundedIntEnv('CHONGSHAN_INVESTIGATE_THREAT_STEP', 2, 1, 4);
+const CHONGSHAN_SOFT_HINT_MAX_PER_TURN = resolveBoundedIntEnv('CHONGSHAN_SOFT_HINT_MAX_PER_TURN', 2, 1, 4);
 const CHONGSHAN_PROGRESS_HINT_NUMERIC = ['1', 'true', 'yes', 'on'].includes(
   (process.env.CHONGSHAN_PROGRESS_HINT_NUMERIC || '').trim().toLowerCase(),
 );
@@ -1394,6 +1840,13 @@ const stripTerminalHints = (narrative: string): string => {
     .trim();
 };
 
+const stripNarrativeMarkupTags = (narrative: string): string => {
+  return (narrative || '')
+    .replace(/<\/?(?:clue|danger|dialogue|rule|new_rule)\b[^>]*>/gi, '')
+    .replace(/\/?(?:new_rule|rule)>/gi, '')
+    .trim();
+};
+
 const sanitizeChongshanDefeatNarrative = (narrative: string): string => {
   let next = narrative;
   for (const { pattern, replacement } of CHONGSHAN_DEFEAT_REPLACEMENTS) {
@@ -1453,6 +1906,38 @@ const softenMechanicalNarrativeTone = (narrative: string): string => {
       pattern: /【节奏建议】[^\n]*/g,
       replacement: '',
     },
+    {
+      pattern: /Final Verify Missing/gi,
+      replacement: '最后一环还没扣上',
+    },
+    {
+      pattern: /封缚协议判定[:：][^\n。]*[。]?/g,
+      replacement: '扬声器里掠过一声冷硬的判词，像在替你宣判。',
+    },
+    {
+      pattern: /这是不可逆的收容失败。?/g,
+      replacement: '你意识到这一步几乎没有回头路了。',
+    },
+    {
+      pattern: /核验状态[:：]\s*\d+\/\d+[^\n。]*。?/g,
+      replacement: '',
+    },
+    {
+      pattern: /你还没完成最基本的封印校验，现在收束只会导致误判。?/g,
+      replacement: '你忽然察觉还差最后一环，若此刻强行收束，整条路会立刻反咬你。',
+    },
+    {
+      pattern: /要把结局真正落地，除了核验，你还需要拿出“位移确认 \+ 执行封缝”这两步实操动作。?/g,
+      replacement: '你心里很清楚：只靠推演不够，接下来必须动起来，把那道封缝亲手落下。',
+    },
+    {
+      pattern: /你越过验证步骤的次数越多，封锁区的路径就越快重排。?/g,
+      replacement: '每跳过一次核验，走廊就更像活物一样改写方向。',
+    },
+    {
+      pattern: /你还没摸到深区的真正坐标。先进入东楼\/地下二层把定位补齐，再谈收束。?/g,
+      replacement: '你还没摸到深区真正的坐标，眼下得先把那块盲区钉死。',
+    },
   ];
 
   for (const { pattern, replacement } of rewrites) {
@@ -1460,6 +1945,77 @@ const softenMechanicalNarrativeTone = (narrative: string): string => {
   }
 
   return next.replace(/\n{3,}/g, '\n\n').trim();
+};
+
+const normalizeNarrativeLineBreaks = (narrative: string): string => {
+  const lines = (narrative || '')
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const line of lines) {
+    if (/^【[^】]+】/.test(line)) {
+      continue;
+    }
+    const dedupeKey = line
+      .replace(/[“”"'‘’.,，。！？!?:：\s]/g, '')
+      .toLowerCase();
+    if (!dedupeKey || seen.has(dedupeKey)) {
+      continue;
+    }
+    seen.add(dedupeKey);
+    out.push(line);
+  }
+  return out.join('\n').replace(/\n{3,}/g, '\n\n').trim();
+};
+
+const isCriticalOutcomeHint = (hint: string): boolean => {
+  return textIncludesAny(hint, [
+    '完美结局',
+    '普通结局',
+    '及格结局',
+    '堕入结局',
+    '最后一道门',
+    '门已经合拢',
+    '没再给你第二次机会',
+  ]);
+};
+
+const isSoftAdvisoryHint = (hint: string): boolean => {
+  return textIncludesAny(hint, [
+    '先',
+    '现在',
+    '补链',
+    '核验',
+    '校验',
+    '封印',
+    '收束',
+    '风向',
+    '脉冲',
+    '再决定',
+  ]);
+};
+
+const countAdvisoryHintLines = (narrative: string): number => {
+  const lines = (narrative || '').split('\n');
+  let count = 0;
+  for (const line of lines) {
+    const plain = stripNarrativeMarkupTags(line);
+    if (plain && isSoftAdvisoryHint(plain) && !isCriticalOutcomeHint(plain)) {
+      count += 1;
+    }
+  }
+  return count;
+};
+
+const finalizePlayerFacingNarrative = (narrative: string): string => {
+  let next = (narrative || '').trim();
+  next = stripTerminalHints(next);
+  next = softenMechanicalNarrativeTone(next);
+  next = stripNarrativeMarkupTags(next);
+  next = normalizeNarrativeLineBreaks(next);
+  return next;
 };
 
 const inferChongshanVictoryTierFromNarrative = (narrative: string): Exclude<ChongshanEndingTier, 'fall' | null> => {
@@ -1495,10 +2051,19 @@ const normalizeChongshanTerminalNarrative = (params: {
 };
 
 const appendNarrativeHint = (narrative: string, hint: string): string => {
-  if (narrative.includes(hint)) {
+  const normalizedHint = softenMechanicalNarrativeTone(stripNarrativeMarkupTags(hint || ''));
+  if (!normalizedHint) {
     return narrative;
   }
-  return `${narrative}\n<danger>${hint}</danger>`;
+  if (stripNarrativeMarkupTags(narrative).includes(normalizedHint)) {
+    return narrative;
+  }
+  const advisoryCount = countAdvisoryHintLines(narrative);
+  const canAppendSoftHint = advisoryCount < CHONGSHAN_SOFT_HINT_MAX_PER_TURN || isCriticalOutcomeHint(normalizedHint);
+  if (!canAppendSoftHint) {
+    return narrative;
+  }
+  return `${narrative}\n<danger>${normalizedHint}</danger>`;
 };
 
 const buildDecoyEvidence = (turnNumber: number): Evidence => {
@@ -1759,6 +2324,7 @@ const applyDifficultyDirector = ({
   const isChongshan = isChongshanStory(storyTitle, storySlug);
   const gate = getEndingGateProfile(directorMode, storyTitle, storySlug);
   const hardEndingTurn = maxTurns + ENDING_GRACE_TURNS;
+  const lateVarietyStartTurn = Math.max(CHONGSHAN_PROGRESS_HINT_START_TURN + 1, directorState.minEndingTurn - 3);
   const tuned: GeminiResponse = {
     ...response,
     narrative: response.narrative || '',
@@ -2071,6 +2637,7 @@ const applyDifficultyDirector = ({
 
   const shouldInjectVerificationChoice = turnNumber >= 4
     && !tuned.is_game_over
+    && turnNumber < lateVarietyStartTurn
     && directorState.strictVerificationActions < gate.trueVerifyActions
     && !hasVerificationChoice(tuned.choices);
   if (shouldInjectVerificationChoice) {
@@ -2247,14 +2814,38 @@ const applyDifficultyDirector = ({
     });
   }
 
-  if (isChongshan && !tuned.is_game_over && turnNumber >= directorState.minEndingTurn - 1) {
+  if (isChongshan && !tuned.is_game_over && CHONGSHAN_EARLY_REBALANCE_TURNS.has(turnNumber)) {
+    tuned.choices = rebalanceEarlyPhaseChoices({
+      choices: tuned.choices,
+      turnNumber,
+      locationName: tuned.location_name,
+      currentAction,
+      narrative: tuned.narrative,
+      currentRules,
+      inventory,
+      directorState,
+    });
+  }
+
+  if (isChongshan && !tuned.is_game_over && turnNumber >= lateVarietyStartTurn) {
     tuned.choices = rebalanceLatePhaseChoices({
+      choices: tuned.choices,
+      locationName: tuned.location_name,
+      turnNumber,
+      directorState,
+      gate,
+    });
+  }
+
+  if (isChongshan && !tuned.is_game_over) {
+    tuned.choices = softenDangerSemanticsOnSafeChoices({
       choices: tuned.choices,
       locationName: tuned.location_name,
       turnNumber,
     });
   }
 
+  tuned.narrative = finalizePlayerFacingNarrative(tuned.narrative);
   tuned.choices = tuned.is_game_over ? [] : ensureChoiceShape(tuned.choices, tuned.location_name);
   return tuned;
 };

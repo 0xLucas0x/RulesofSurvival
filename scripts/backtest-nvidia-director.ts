@@ -90,6 +90,20 @@ type AgentMemorySnapshot = {
     reasons: string[];
   };
 };
+type AgentPhase = 'explore' | 'advance' | 'resolve';
+type AgentRiskTolerance = 'low' | 'medium' | 'high';
+type AgentStrategyState = {
+  phase: AgentPhase;
+  turnsRemaining: number;
+  riskTolerance: AgentRiskTolerance;
+  phaseGoals: string[];
+  targetMix: Record<Choice['actionType'], number>;
+};
+type AgentScoredChoice = {
+  choice: Choice;
+  score: number;
+  reasons: string[];
+};
 
 const SPECIAL_RULE_DROP_KEYWORDS = ['完整守则', '整页守则', '规则汇编', '值班手册', '患者守则原件', '公告栏整版'];
 
@@ -113,6 +127,11 @@ const AGENT_HISTORY_TURNS = Number.parseInt(process.env.TEST_AGENT_HISTORY_TURNS
 const AGENT_MEMORY_TURNS = Number.parseInt(process.env.TEST_AGENT_MEMORY_TURNS || '8', 10);
 const AGENT_GUARD_MIN_RISKY_COUNT = Number.parseInt(process.env.TEST_AGENT_GUARD_MIN_RISKY_COUNT || '2', 10);
 const AGENT_GUARD_RISKY_DELTA_FLOOR = Number.parseInt(process.env.TEST_AGENT_GUARD_RISKY_DELTA_FLOOR || '-8', 10);
+const AGENT_PHASE_EXPLORE_TURNS = Number.parseInt(process.env.TEST_AGENT_PHASE_EXPLORE_TURNS || '4', 10);
+const AGENT_PHASE_ENDGAME_TURNS = Number.parseInt(process.env.TEST_AGENT_PHASE_ENDGAME_TURNS || '4', 10);
+const AGENT_LLM_BONUS = Number.parseFloat(process.env.TEST_AGENT_LLM_BONUS || '1.6');
+const AGENT_SCORE_GAP_FOR_OVERRIDE = Number.parseFloat(process.env.TEST_AGENT_SCORE_GAP_FOR_OVERRIDE || '1.2');
+const AGENT_DEBUG = /^(1|true|yes)$/i.test((process.env.TEST_AGENT_DEBUG || '').trim());
 const API_KEY = (process.env.NVIDIA_API_KEY || '').trim();
 const RUN_TOKEN = new Date().toISOString().replace(/[-:]/g, '').replace(/\..+$/, '').replace('T', '-');
 const OUTPUT_DIR = (process.env.TEST_OUTPUT_DIR || '').trim() || path.join('tmp', `backtest-report-${RUN_TOKEN}-${process.pid}`);
@@ -210,6 +229,7 @@ const ESCAPE_HINTS = ['出口', '屋顶', '撤离', '逃离', '离开'];
 const VERIFY_ROUTE_HINTS = ['赵医生', '核验', '执行结果', '交叉验证'];
 const DEEP_ZONE_HINTS = ['东楼', '地下', '档案', '封锁', '禁闭', '裂缝', '封印室', '地下二层'];
 const PLOT_ITEM_HINTS = ['病历', '档案', '录音', '工牌', '徽章', '封印', '阵列', '蓝衣', '赵医生', '裂缝', '守则原件', '钥匙'];
+const STALL_HINTS = ['对比线索', '找冲突', '寻找冲突', '原地推演', '复盘', '梳理记录', '整理思绪', '互相矛盾'];
 
 const findChoiceByKeywords = (choices: Choice[], keywords: string[]): Choice | null => {
   const hit = choices.find((choice) => keywords.some((kw) => choice.text.includes(kw)));
@@ -510,54 +530,288 @@ const buildAgentMemorySnapshot = (params: {
   };
 };
 
-const pickChoiceByActionTypePriority = (
-  choices: Choice[],
-  actionTypes: Choice['actionType'][],
-  avoidType?: Choice['actionType'] | null,
-): Choice | null => {
-  for (const type of actionTypes) {
-    const hit = choices.find((choice) => choice.actionType === type && choice.actionType !== avoidType);
-    if (hit) {
-      return hit;
-    }
-  }
-  return null;
+const hasAnyKeyword = (text: string, keywords: string[]): boolean => {
+  return keywords.some((kw) => text.includes(kw));
 };
 
-const applyAgentMemoryGuard = (params: {
-  selected: Choice;
-  choices: Choice[];
+const buildAgentStrategyState = (params: {
+  turn: number;
+  sanity: number;
+  progressFeedback: ReturnType<typeof computeAgentProgressFeedback>;
+}): AgentStrategyState => {
+  const turnsRemaining = Math.max(0, MAX_TURNS - (params.turn + 1));
+  let phase: AgentPhase;
+  if (turnsRemaining <= Math.max(1, AGENT_PHASE_ENDGAME_TURNS)) {
+    phase = 'resolve';
+  } else if (params.turn < Math.max(1, AGENT_PHASE_EXPLORE_TURNS)) {
+    phase = 'explore';
+  } else {
+    phase = 'advance';
+  }
+  if (
+    phase === 'advance'
+    && params.progressFeedback.progressScore >= 82
+    && turnsRemaining <= Math.max(2, AGENT_PHASE_ENDGAME_TURNS + 2)
+  ) {
+    phase = 'resolve';
+  }
+
+  let riskTolerance: AgentRiskTolerance = 'medium';
+  if (params.sanity <= 30 || params.progressFeedback.threatClockEstimate >= 5) {
+    riskTolerance = 'low';
+  } else if (
+    phase === 'resolve'
+    && params.sanity >= 35
+    && params.progressFeedback.progressScore >= 60
+    && params.progressFeedback.threatClockEstimate <= 3
+  ) {
+    riskTolerance = 'high';
+  }
+
+  const targetMixByPhase: Record<AgentPhase, Record<Choice['actionType'], number>> = {
+    explore: { move: 0.28, investigate: 0.34, item: 0.2, risky: 0.18 },
+    advance: { move: 0.2, investigate: 0.4, item: 0.25, risky: 0.15 },
+    resolve: { move: 0.2, investigate: 0.28, item: 0.15, risky: 0.37 },
+  };
+  const phaseGoals = phase === 'explore'
+    ? ['扩展可行动空间', '确认关键规则', '避免连续同类动作']
+    : phase === 'advance'
+      ? (params.progressFeedback.missingGoals.slice(0, 3).length
+        ? params.progressFeedback.missingGoals.slice(0, 3)
+        : ['继续补齐主线缺口', '保持推进节奏'])
+      : ['触发可收束路径', '避免无效空转', '允许必要冒险换终局机会'];
+
+  return {
+    phase,
+    turnsRemaining,
+    riskTolerance,
+    phaseGoals,
+    targetMix: targetMixByPhase[phase],
+  };
+};
+
+const buildRecentActionTypeRatio = (memory: AgentMemorySnapshot): Record<Choice['actionType'], number> => {
+  const usage: Record<Choice['actionType'], number> = {
+    move: 0,
+    investigate: 0,
+    item: 0,
+    risky: 0,
+  };
+  const total = memory.recentTurns.length;
+  if (!total) {
+    return usage;
+  }
+  for (const turn of memory.recentTurns) {
+    usage[turn.choiceType] += 1;
+  }
+  usage.move /= total;
+  usage.investigate /= total;
+  usage.item /= total;
+  usage.risky /= total;
+  return usage;
+};
+
+const scoreChoiceByAgentState = (params: {
+  choice: Choice;
+  llmChoiceId: string | null;
+  strategyState: AgentStrategyState;
+  progressFeedback: ReturnType<typeof computeAgentProgressFeedback>;
   memory: AgentMemorySnapshot;
+  recentActionRatio: Record<Choice['actionType'], number>;
+  sanity: number;
+}): AgentScoredChoice => {
+  const {
+    choice,
+    llmChoiceId,
+    strategyState,
+    progressFeedback,
+    memory,
+    recentActionRatio,
+    sanity,
+  } = params;
+  const reasons: string[] = [];
+  let score = 0;
+  const weightsByPhase: Record<AgentPhase, Record<Choice['actionType'], number>> = {
+    explore: { move: 2.4, investigate: 2.8, item: 2.2, risky: 1.5 },
+    advance: { move: 2.0, investigate: 3.0, item: 2.5, risky: 1.8 },
+    resolve: { move: 2.2, investigate: 2.4, item: 2.0, risky: 2.4 },
+  };
+  const text = choice.text || '';
+  const hasVerify = hasAnyKeyword(text, VERIFY_HINTS);
+  const hasPlot = hasAnyKeyword(text, PLOT_ITEM_HINTS);
+  const hasDeep = hasAnyKeyword(text, DEEP_ZONE_HINTS);
+  const hasSeal = hasAnyKeyword(text, SEAL_HINTS);
+  const hasEscape = hasAnyKeyword(text, ESCAPE_HINTS);
+  const hasVerifyRoute = hasAnyKeyword(text, VERIFY_ROUTE_HINTS);
+  const hasTerminalRoute = hasEscape || hasSeal || hasVerifyRoute;
+  const hasStall = hasAnyKeyword(text, STALL_HINTS);
+
+  score += weightsByPhase[strategyState.phase][choice.actionType] || 0;
+
+  if (llmChoiceId && choice.id === llmChoiceId) {
+    score += Number.isFinite(AGENT_LLM_BONUS) ? AGENT_LLM_BONUS : 1.6;
+    reasons.push('llm');
+  }
+
+  if (progressFeedback.verifyActions.missing > 0) {
+    if (hasVerify) {
+      score += 2.4;
+      reasons.push('verify');
+    } else if (choice.actionType === 'investigate' || choice.actionType === 'item') {
+      score += 0.9;
+    }
+  }
+  if (progressFeedback.plotItems.missing > 0) {
+    if (hasPlot) {
+      score += 2.2;
+      reasons.push('plot');
+    }
+    if (choice.actionType === 'item') {
+      score += 0.9;
+    }
+  }
+  if (progressFeedback.deepZone.missing > 0) {
+    if (hasDeep) {
+      score += 1.9;
+      reasons.push('deep');
+    }
+    if (choice.actionType === 'move') {
+      score += 0.8;
+    }
+  }
+  if (progressFeedback.sealStabilityEstimate <= 0 && hasSeal) {
+    score += 2.0;
+    reasons.push('seal');
+  }
+  if (progressFeedback.threatClockEstimate >= 4) {
+    if (choice.actionType === 'risky') {
+      score -= strategyState.riskTolerance === 'high' ? 1.4 : 2.8;
+    } else if (choice.actionType === 'move' || choice.actionType === 'item') {
+      score += 0.8;
+    }
+  }
+  if (sanity <= 30) {
+    if (choice.actionType === 'risky') {
+      score -= 3;
+    } else if (choice.actionType === 'move' || choice.actionType === 'item') {
+      score += 1.2;
+    }
+  }
+
+  if (strategyState.phase === 'resolve') {
+    if (hasTerminalRoute) {
+      score += 3.2;
+      reasons.push('resolve');
+    }
+    if (hasStall && !hasTerminalRoute) {
+      score -= 2.0;
+    }
+    if (progressFeedback.verifyActions.missing === 0 && hasVerify && !hasTerminalRoute) {
+      score -= 1.3;
+    }
+    if (strategyState.turnsRemaining <= 2 && choice.actionType === 'investigate' && !hasTerminalRoute) {
+      score -= 1.1;
+    }
+  } else if (strategyState.phase === 'advance' && hasStall && !hasVerify && !hasPlot && !hasDeep) {
+    score -= 1.4;
+  }
+
+  if (memory.trailingChoiceType === choice.actionType && memory.trailingSameChoiceCount >= 2) {
+    const repeatPenalty = (memory.trailingSameChoiceCount - 1) * 1.1;
+    score -= repeatPenalty;
+    reasons.push('repeat');
+  }
+
+  const targetRatio = strategyState.targetMix[choice.actionType];
+  const currentRatio = recentActionRatio[choice.actionType] || 0;
+  if (currentRatio > targetRatio + 0.18) {
+    score -= 1.0;
+  } else if (currentRatio < targetRatio - 0.15) {
+    score += 0.7;
+  }
+
+  if (memory.recommendation.avoidRisky && choice.actionType === 'risky') {
+    score -= 1.3;
+  }
+  if (memory.recommendation.avoidRepeatChoiceType === choice.actionType) {
+    score -= 1.1;
+  }
+
+  return {
+    choice,
+    score: Number(score.toFixed(3)),
+    reasons,
+  };
+};
+
+const rankChoicesByAgentState = (params: {
+  choices: Choice[];
+  llmChoiceId: string | null;
+  strategyState: AgentStrategyState;
+  progressFeedback: ReturnType<typeof computeAgentProgressFeedback>;
+  memory: AgentMemorySnapshot;
+  sanity: number;
+}): AgentScoredChoice[] => {
+  const recentActionRatio = buildRecentActionTypeRatio(params.memory);
+  return params.choices
+    .map((choice) => scoreChoiceByAgentState({
+      choice,
+      llmChoiceId: params.llmChoiceId,
+      strategyState: params.strategyState,
+      progressFeedback: params.progressFeedback,
+      memory: params.memory,
+      recentActionRatio,
+      sanity: params.sanity,
+    }))
+    .sort((a, b) => b.score - a.score);
+};
+
+const pickChoiceByStateMachine = (params: {
+  choices: Choice[];
+  llmChoice: Choice | null;
+  strategyState: AgentStrategyState;
+  progressFeedback: ReturnType<typeof computeAgentProgressFeedback>;
+  memory: AgentMemorySnapshot;
+  sanity: number;
+  turn: number;
 }): Choice => {
-  const { selected, choices, memory } = params;
-
-  if (memory.recommendation.avoidRisky && selected.actionType === 'risky') {
-    const replacement = findChoiceByKeywords(choices, VERIFY_HINTS)
-      || pickChoiceByActionTypePriority(
-        choices,
-        memory.recommendation.preferredChoiceTypes.length
-          ? memory.recommendation.preferredChoiceTypes
-          : ['investigate', 'item', 'move'],
-      )
-      || pickChoiceByActionTypePriority(choices, ['investigate', 'item', 'move']);
-    if (replacement && replacement.id !== selected.id) {
-      console.warn(
-        `[agent-guard] reroute risky -> ${replacement.actionType} | reasons=${memory.recommendation.reasons.join(';') || 'n/a'}`,
-      );
-      return replacement;
+  const ranked = rankChoicesByAgentState({
+    choices: params.choices,
+    llmChoiceId: params.llmChoice?.id ?? null,
+    strategyState: params.strategyState,
+    progressFeedback: params.progressFeedback,
+    memory: params.memory,
+    sanity: params.sanity,
+  });
+  if (!ranked.length) {
+    return { id: 'fallback', text: '原地观察', actionType: 'investigate' };
+  }
+  const top = ranked[0];
+  const llmRanked = params.llmChoice
+    ? ranked.find((item) => item.choice.id === params.llmChoice?.id) || null
+    : null;
+  const threshold = Number.isFinite(AGENT_SCORE_GAP_FOR_OVERRIDE) ? AGENT_SCORE_GAP_FOR_OVERRIDE : 1.2;
+  let selected = top.choice;
+  let mode = 'state-top';
+  if (params.llmChoice && llmRanked) {
+    const gap = top.score - llmRanked.score;
+    if (params.llmChoice.id === top.choice.id || gap <= Math.max(0, threshold)) {
+      selected = params.llmChoice;
+      mode = 'llm-kept';
+    } else {
+      mode = 'state-override';
     }
   }
 
-  const avoidType = memory.recommendation.avoidRepeatChoiceType;
-  if (avoidType && selected.actionType === avoidType) {
-    const replacement = findChoiceByKeywords(choices, VERIFY_HINTS)
-      || pickChoiceByActionTypePriority(choices, ['investigate', 'item', 'move', 'risky'], avoidType);
-    if (replacement && replacement.id !== selected.id) {
-      console.warn(`[agent-guard] break repetitive ${avoidType} -> ${replacement.actionType}`);
-      return replacement;
-    }
+  if (AGENT_DEBUG) {
+    const topPreview = ranked
+      .slice(0, 3)
+      .map((item) => `${item.choice.id}:${item.choice.actionType}:${item.score}`)
+      .join(', ');
+    console.log(
+      `[agent-state] turn=${params.turn} phase=${params.strategyState.phase} mode=${mode} selected=${selected.id}:${selected.actionType} top=[${topPreview}]`,
+    );
   }
-
   return selected;
 };
 
@@ -569,33 +823,25 @@ const requestAgentChoice = async (params: {
   inventory: Evidence[];
   narrative: string;
   history: string[];
-  timeline: TurnReplayRecord[];
   choices: Choice[];
+  progressFeedback: ReturnType<typeof computeAgentProgressFeedback>;
+  memorySnapshot: AgentMemorySnapshot;
+  strategyState: AgentStrategyState;
 }): Promise<string> => {
   const cleanBaseUrl = normalizeOpenAIBaseUrl(BASE_URL);
-  const progressFeedback = computeAgentProgressFeedback({
-    turn: params.turn,
-    sanity: params.sanity,
-    history: params.history,
-    narrative: params.narrative,
-    inventory: params.inventory,
-  });
-  const memorySnapshot = buildAgentMemorySnapshot({
-    timeline: params.timeline,
-    sanity: params.sanity,
-    narrative: params.narrative,
-  });
   const payload = {
     turn: params.turn + 1,
     maxTurns: MAX_TURNS,
+    turnsRemaining: params.strategyState.turnsRemaining,
     validChoiceIds: params.choices.map((choice) => choice.id),
     sanity: params.sanity,
     location: params.location,
+    strategyState: params.strategyState,
     latestNarrative: buildNarrativePreview(params.narrative, 140),
     recentHistory: params.history.slice(-Math.max(1, AGENT_HISTORY_TURNS)),
     activeRules: params.rules.slice(-6),
-    progressFeedback,
-    memory: memorySnapshot,
+    progressFeedback: params.progressFeedback,
+    memory: params.memorySnapshot,
     inventory: params.inventory.slice(-6).map((item) => ({
       id: item.id,
       name: item.name,
@@ -623,7 +869,7 @@ const requestAgentChoice = async (params: {
         {
           role: 'system',
           content:
-            '你是《崇山医院》回测代理。请在 validChoiceIds 中选择一个最优动作 ID，以最大化胜率并避免 route_incomplete。若 progressFeedback.missingGoals 非空，优先选择能补齐缺口的动作；若 threatClockEstimate>=4，优先降低威胁。你必须阅读 memory.recommendation：当 avoidRisky=true 时不要选 risky；当 avoidRepeatChoiceType 非空时避免继续重复该类型。输出要求：只输出一个真实 ID（例如 2），不要输出解释、JSON、模板或占位符。',
+            '你是《崇山医院》回测代理。你会收到 strategyState.phase（explore/advance/resolve）和 progressFeedback。原则：1) 按 phase 执行节奏：探索期扩展信息，中盘补缺，收束期优先可终局路径；2) 不要连续三回合同类动作，除非可选项受限；3) 不要被“原地复盘/对比冲突”类空转选项拖住；4) 仅在高收益时选择 risky。请在 validChoiceIds 中只输出一个真实 ID（如 2），不要输出解释或 JSON。',
         },
         {
           role: 'user',
@@ -772,26 +1018,52 @@ const pickChoiceByAgentStrategy = async (params: {
   if (!choices.length) {
     return { id: 'fallback', text: '原地观察', actionType: 'investigate' };
   }
+
+  const progressFeedback = computeAgentProgressFeedback({
+    turn: params.turn,
+    sanity: params.sanity,
+    history: params.history,
+    narrative: params.narrative,
+    inventory: params.inventory,
+  });
+  const memorySnapshot = buildAgentMemorySnapshot({
+    timeline: params.timeline,
+    sanity: params.sanity,
+    narrative: params.narrative,
+  });
+  const strategyState = buildAgentStrategyState({
+    turn: params.turn,
+    sanity: params.sanity,
+    progressFeedback,
+  });
+
+  let llmChoice: Choice | null = null;
   try {
-    const rawText = await withTimeout(requestAgentChoice(params), AGENT_DECISION_TIMEOUT_MS);
+    const rawText = await withTimeout(requestAgentChoice({
+      ...params,
+      progressFeedback,
+      memorySnapshot,
+      strategyState,
+    }), AGENT_DECISION_TIMEOUT_MS);
     const resolved = resolveAgentChoice(choices, rawText);
     if (resolved) {
-      const memorySnapshot = buildAgentMemorySnapshot({
-        timeline: params.timeline,
-        sanity: params.sanity,
-        narrative: params.narrative,
-      });
-      return applyAgentMemoryGuard({
-        selected: resolved,
-        choices,
-        memory: memorySnapshot,
-      });
+      llmChoice = resolved;
+    } else {
+      console.warn(`[agent-chooser] invalid choice output: ${buildNarrativePreview(rawText, 180)}`);
     }
-    console.warn(`[agent-chooser] invalid choice output: ${buildNarrativePreview(rawText, 180)}`);
   } catch (error: any) {
-    console.warn(`[agent-chooser] fallback to mixed: ${error?.message || 'unknown error'}`);
+    console.warn(`[agent-chooser] fallback to state-machine only: ${error?.message || 'unknown error'}`);
   }
-  return pickChoiceByMixedStrategy(choices);
+
+  return pickChoiceByStateMachine({
+    choices,
+    llmChoice,
+    strategyState,
+    progressFeedback,
+    memory: memorySnapshot,
+    sanity: params.sanity,
+    turn: params.turn,
+  });
 };
 
 const pickChoiceByStrategy = async (params: {
@@ -1047,6 +1319,9 @@ const main = async () => {
   console.log(`Backtesting ${TOTAL_GAMES} games | model=${MODEL} | baseUrl=${BASE_URL} | strategy=${TEST_STRATEGY}`);
   if (TEST_STRATEGY === 'agent') {
     console.log(`Agent chooser enabled | model=${AGENT_MODEL} | timeoutMs=${AGENT_DECISION_TIMEOUT_MS}`);
+    console.log(
+      `Agent state machine | exploreTurns=${AGENT_PHASE_EXPLORE_TURNS} | endgameTurns=${AGENT_PHASE_ENDGAME_TURNS} | llmBonus=${AGENT_LLM_BONUS} | overrideGap=${AGENT_SCORE_GAP_FOR_OVERRIDE}`,
+    );
   }
   console.log(`Artifacts output dir: ${OUTPUT_DIR}`);
   const systemInstructionOverride = await resolveStoryInstructionOverride();
@@ -1115,6 +1390,10 @@ const main = async () => {
       strategy: TEST_STRATEGY,
       agentModel: TEST_STRATEGY === 'agent' ? AGENT_MODEL : null,
       agentDecisionTimeoutMs: TEST_STRATEGY === 'agent' ? AGENT_DECISION_TIMEOUT_MS : null,
+      agentPhaseExploreTurns: TEST_STRATEGY === 'agent' ? AGENT_PHASE_EXPLORE_TURNS : null,
+      agentPhaseEndgameTurns: TEST_STRATEGY === 'agent' ? AGENT_PHASE_ENDGAME_TURNS : null,
+      agentLlmBonus: TEST_STRATEGY === 'agent' ? AGENT_LLM_BONUS : null,
+      agentScoreGapForOverride: TEST_STRATEGY === 'agent' ? AGENT_SCORE_GAP_FOR_OVERRIDE : null,
       provider: PROVIDER,
       model: MODEL,
       baseUrl: BASE_URL,

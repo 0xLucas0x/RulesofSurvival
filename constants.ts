@@ -9,7 +9,7 @@ export const INITIAL_RULES = [
 export const INITIAL_STATE: GameState = {
   sanity: 100,
   location: "崇山医院 - 大厅",
-  narrative: "你在一阵刺鼻的消毒水味中醒来。<clue>四周昏暗，只有头顶的日光灯发出滋滋的电流声。</clue>你不记得自己是怎么进来的，但你手里紧紧攥着一张皱巴巴的挂号单，上面写着：<danger>'遵守规则，活著离开'</danger>。",
+  narrative: "你在一阵刺鼻的消毒水味中醒来。四周昏暗，只有头顶的日光灯发出滋滋的电流声。你不记得自己是怎么进来的，但你手里紧紧攥着一张皱巴巴的挂号单，上面写着：'遵守规则，活著离开'。",
   imagePrompt: "dark eerie abandoned hospital hallway with flickering fluorescent lights, grainy horror style, greenish tint",
   choices: [
     { id: "1", text: "查看四周", actionType: "investigate" },
@@ -151,10 +151,9 @@ The player has a "Sanity" (理智值) meter.
 **Game Loop Rules:**
 1. Receive the user's last action, current context, and CURRENT KNOWN RULES.
 2. Generate a descriptive, scary narrative (approx 100-150 words).
-3. **CRITICAL: Use XML-like tags to highlight text:**
-   - Use <dialogue>...text...</dialogue> for spoken words or voices.
-   - Use <danger>...text...</danger> for scary moments, threats, or warnings.
-   - Use <clue>...text...</clue> for important items, smells, or visual clues.
+3. Narrative must be plain player-facing Chinese prose.
+   - Do NOT use XML/HTML-like tags such as <dialogue>, <danger>, <clue>, <rule>, <new_rule>.
+   - Integrate dialogue, danger, and clues directly in natural sentences.
 4. Provide 3-4 distinct choices.
 5. Provide a short English prompt to generate an image of the current scene.
 6. **RULES MECHANIC:**
@@ -299,7 +298,7 @@ Pacing guide:
 
 Output JSON format ONLY:
 {
-  "narrative": "String (with tags)",
+  "narrative": "String (纯中文叙事文本，不要标签)",
   "choices": [{ "id": "1", "text": "String (纯中文，不要包含actionType标签)", "actionType": "move"|"investigate"|"item"|"risky" }],
   "image_prompt_english": "String",
   "sanity_change": Number,
